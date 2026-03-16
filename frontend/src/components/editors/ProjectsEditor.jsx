@@ -1,5 +1,6 @@
 import React from 'react';
 import { Field, TextInput, TextArea, SmallButton } from './Field';
+import DatePicker from './DatePicker';
 
 // Bug 4.1 fixed: stable `_id` key instead of array index.
 
@@ -57,10 +58,18 @@ export default function ProjectsEditor({ value, onChange }) {
                 <TextInput value={it.url || ''} onChange={(e) => updateItem(idx, { url: e.target.value })} />
               </Field>
               <Field label="Start Date (optional)">
-                <TextInput value={it.startDate || ''} onChange={(e) => updateItem(idx, { startDate: e.target.value })} />
+                <DatePicker
+                  placeholder="DD/MM/YY"
+                  value={it.startDate || ''}
+                  onChange={(value) => updateItem(idx, { startDate: value })}
+                />
               </Field>
               <Field label="End Date (optional)">
-                <TextInput value={it.endDate || ''} onChange={(e) => updateItem(idx, { endDate: e.target.value })} />
+                <DatePicker
+                  placeholder="DD/MM/YY"
+                  value={it.endDate || ''}
+                  onChange={(value) => updateItem(idx, { endDate: value })}
+                />
               </Field>
             </div>
 

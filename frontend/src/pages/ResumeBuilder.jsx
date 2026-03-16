@@ -287,22 +287,6 @@ function ResumeBuilder() {
     }
   };
 
-  const handleExportDOCX = async () => {
-    if (!id) { showToast('Please save the resume first.', 'error'); return; }
-    try {
-      const response = await exportAPI.docx(id);
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `${resume.title || 'resume'}.docx`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
-    } catch (error) {
-      showToast(`DOCX export failed: ${error.response?.data?.error || error.message}`, 'error');
-    }
-  };
 
   const handleChange = (field, value) => {
     setResume(prev => ({ ...prev, [field]: value }));
@@ -487,9 +471,6 @@ function ResumeBuilder() {
               </button>
               <button onClick={handleExportPDF} className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 text-sm" title="Export as PDF">
                 📄 PDF
-              </button>
-              <button onClick={handleExportDOCX} className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 text-sm" title="Export as DOCX">
-                📝 DOCX
               </button>
             </>
           )}

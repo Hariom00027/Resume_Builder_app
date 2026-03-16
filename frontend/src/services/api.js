@@ -60,8 +60,7 @@ export const atsScoringAPI = {
 
 // Export API
 export const exportAPI = {
-  pdf: (id) => api.post(`/export/pdf/${id}`, {}, { responseType: 'blob' }),
-  docx: (id) => api.post(`/export/docx/${id}`, {}, { responseType: 'blob' })
+  pdf: (id) => api.post(`/export/pdf/${id}`, {}, { responseType: 'blob' })
 };
 
 export default api;

@@ -28,9 +28,17 @@ class AIController {
   // Generate experience bullets from scratch
   async generateExperienceBullets(req, res) {
     try {
-      const { role, company, keywords } = req.body;
-      const bullets = await openaiService.generateExperienceBullets(role, company, keywords);
-      res.json({ bullets });
+      const { role, company, keywords, sectionType, sectionData } = req.body;
+      
+      // If sectionType is provided, use the new section-specific generation
+      if (sectionType) {
+        const bullets = await openaiService.generateSectionContent(sectionType, sectionData || {}, keywords || '');
+        res.json({ bullets });
+      } else {
+        // Legacy support: use old method if only role/company provided
+        const bullets = await openaiService.generateExperienceBullets(role, company, keywords);
+        res.json({ bullets });
+      }
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
@@ -153,13 +161,17 @@ class AIController {
   // Inject data into Template
   async injectTemplateData(req, res) {
     try {
-      const { templateHtml, formData, mode = 'edit' } = req.body;
+      const { templateHtml, formData, images = {}, mode = 'edit' } = req.body;
       if (!templateHtml || !formData) {
         return res.status(400).json({ error: 'templateHtml and formData are required' });
       }
 
-      console.log(`[AI Controller] Injecting template structure (Mode: ${mode}), HTML length:`, templateHtml.length);
-      const injectedHtml = await openaiService.injectTemplateData(templateHtml, formData, mode);
+      console.log(`[AI Controller] Injecting template structure (Mode: ${mode}), HTML length: ${templateHtml.length}, Form fields: ${Object.keys(formData).length}, Images: ${Object.keys(images).length}`);
+      
+      // Merge images back into formData for processing (images are handled separately in the service)
+      const combinedFormData = { ...formData, ...images };
+      
+      const injectedHtml = await openaiService.injectTemplateData(templateHtml, combinedFormData, mode);
       console.log('[AI Controller] Injection completed.');
       res.json({ html: injectedHtml });
     } catch (error) {

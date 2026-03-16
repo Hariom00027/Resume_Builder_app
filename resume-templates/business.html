@@ -1,0 +1,373 @@
+<!doctype html>
+<html>
+	<head>
+
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, user-scalable=no, minimal-ui">
+
+	<title>Hariom</title>
+
+	<style>
+	body {
+	background: #fff;
+	font: 15px Arial, Helvetica, sans-serif;
+	line-height: 1.4;
+	margin: 50px 0;
+	margin-bottom: 100px;
+}
+
+.divider {
+	margin-left: 20px;
+	height: 20px;
+	width: 3px;
+	display: inline-block;
+	background-color: #253F8E;
+	margin-right: 5px;
+}
+
+.row {
+	width: 100%;
+	margin-bottom: 20px;
+}
+
+.row > .title, .description {
+	width: 49%;
+	display: inline-block;
+	vertical-align: top;
+}
+
+.row > .title {
+	font-weight: bold;
+}
+
+.no-bold {
+	font-weight: normal;
+}
+
+.blue {
+	color: #253F8E;
+}
+
+a {
+	text-decoration: none;
+	color: #253F8E;
+	font-weight: lighter;
+}
+
+/* Use dash (-) as list-style-type */
+ul.dash{
+	margin: 0;
+    list-style-type: none;
+		padding-left: 8px;
+}
+
+ul.dash > li:before {
+    content: "-"; /* en dash here */
+    position: absolute;
+    margin-left: -0.8em;
+}
+
+h2 {
+	font-size: 1.2em;
+	font-weight: normal;
+	border-bottom: 2px solid #253F8E;
+	padding-bottom: 0;
+	margin-top: 40px;
+}
+
+.location {
+	display: inline-block;
+	position: relative;
+	top: -5px;
+}
+
+h1 {
+	font-size: 24px;
+	margin-bottom: 4px;
+}
+
+h4 {
+	margin-bottom: 0px;
+	margin-top: 5px;
+}
+
+em {
+	color: #999;
+}
+p {
+	line-height: 1.4;
+}
+ul {
+	margin-bottom: 0;
+}
+section {
+	margin-bottom: 2em;
+}
+blockquote {
+	margin: 0;
+	margin-bottom: 1em;
+}
+.item {
+	margin-bottom: 1em;
+}
+#resume {
+	margin: 0 auto;
+	max-width: 780px;
+	padding: 0 20px;
+}
+#basics {
+	margin-bottom: -10px;
+}
+#basics h3 {
+	margin-top: 1.5em;
+}
+#basics .contact strong,
+#location strong {
+	clear: both;
+	float: left;
+	line-height: 1.3;
+	width: 120px;
+}
+#profiles,
+#skills {
+	overflow: hidden;
+}
+
+	</style>
+
+	</head>
+	<body>
+
+	<div id="resume">
+
+	<h1>Hariom</h1>
+	<div class="divider"></div>
+	<div class="location">San Francisco, California, US</div>
+	<section id="basics">
+		<h2>PERSONAL INFORMATION</h2>
+		<div class="row">
+			<div class="title">Website</div>
+			<div class="description"></div>
+		</div>
+		<div class="row">
+			<div class="title">Phone number</div>
+			<div class="description">(912) 555-4321</div>
+		</div>
+		<div class="row">
+			<div class="title">Email</div>
+			<div class="description">hariomvns2003@gmail.com</div>
+		</div>
+	</section>
+
+	<section id="work">
+		<h2>EXPERIENCE</h2>
+		<div class="item">
+			<div class="row">
+				<div class="title">
+			<div class="date no-bold">
+				<span class="startDate">
+					2013-12-01
+				</span>
+				<span class="endDate">
+					- 2014-12-01
+				</span>
+			</div>
+			</div>
+			<div class="description">
+				<ul class="highlights dash">
+					<li>Build an algorithm for artist to detect if their music was violating copy right infringement laws</li>
+					<li>Successfully won Techcrunch Disrupt</li>
+					<li>Optimized an algorithm that holds the current world record for Weisman Scores</li>
+				</ul>
+			</div>
+		</div>
+	</div>
+	</section>
+
+	<!-- 
+	<section id="volunteer">
+		<h2>Volunteer</h2>
+		<div class="item">
+			<h3 class="company">
+				CoderDojo
+			</h3>
+			<div class="date">
+				<span class="startDate">
+					2012-01-01
+				</span>
+				<span class="endDate">
+					- 2013-01-01
+				</span>
+			</div>
+			<div class="position">
+				Teacher
+			</div>
+			<div class="summary">
+				<p>Global movement of free coding clubs for young people.</p>
+			</div>
+			<ul class="dash">
+				<li>Awarded &#x27;Teacher of the Month&#x27;</li>
+			</ul>
+		</div>
+	</section>
+	 -->
+
+	<section id="education">
+		<h2>EDUCATION</h2>
+		<div class="item">
+			<div class="row">
+				<div class="title">
+					<div class="institution">
+						University of Oklahoma
+					</div>
+					<div class="studyInformation no-bold blue">
+						Information Technology - Bachelor
+					</div>
+					<div class="date no-bold">
+						<span class="startDate">
+							2011-06-01
+						</span>
+						<span class="endDate">
+							- 2014-01-01
+						</span>
+					</div>
+				</div>
+				<div class="description">
+				<ul class="courses dash">
+					<li>DB1101 - Basic SQL</li>
+					<li>CS2011 - Java Introduction</li>
+				</ul>
+				</div>
+			</div>
+		</div>
+	</section>
+
+	<!-- 
+	<section id="awards">
+		<h2>Awards</h2>
+		<div class="item">
+			<div class="title">
+				Digital Compression Pioneer Award
+			</div>
+			<div class="date">
+				2014-11-01
+			</div>
+			<div class="awarder">
+				Techcrunch
+			</div>
+			<div class="summary">
+				<p>There is no spoon.</p>
+			</div>
+		</div>
+	</section>
+
+	<section id="publications">
+		<h2>Publications</h2>
+		<div class="item">
+			<div class="name">
+				Video compression for 3d media
+			</div>
+			<div class="publisher">
+				Hooli
+			</div>
+			<div class="releaseDate">
+				2014-10-01
+			</div>
+			<div class="summary">
+				<p>Innovative middle-out compression algorithm that changes the way we store data.</p>
+			</div>
+		</div>
+	</section>
+	 -->
+
+	<section id="skills">
+		<h2>SKILLS</h2>
+		<div class="item">
+			<div class="row">
+			<div class="title">
+				<div class="name">
+					Web Development
+				</div>
+			</div>
+			<div class="description">
+				<div class="level">
+					<em>Master</em>
+				</div>
+				<ul class="keywords dash">
+					<li>HTML</li>
+					<li>CSS</li>
+					<li>Javascript</li>
+				</ul>
+				</div>
+			</div>
+		</div>
+		<div class="item">
+			<div class="row">
+			<div class="title">
+				<div class="name">
+					Compression
+				</div>
+			</div>
+			<div class="description">
+				<div class="level">
+					<em>Master</em>
+				</div>
+				<ul class="keywords dash">
+					<li>Mpeg</li>
+					<li>MP4</li>
+					<li>GIF</li>
+				</ul>
+				</div>
+			</div>
+		</div>
+	</section>
+
+	<section id="languages">
+		<h2>Languages</h2>
+		<div class="item">
+			<div class="row">
+			<div class="title">
+				<div class="language">
+					English
+				</div>
+			</div>
+			<div class="description">
+				<ul class="fluency dash">
+					<li>Native speaker</li>
+				</ul>
+			</div>
+			</div>
+		</div>
+	</section>
+
+	<!-- 
+	<section id="interests">
+		<h2>Interests</h2>
+		<div class="item">
+			<div class="name">
+				Wildlife
+			</div>
+			<ul class="keywords">
+				<li>Ferrets</li>
+				<li>Unicorns</li>
+			</ul>
+		</div>
+	</section>
+
+	<section id="references">
+		<h2>References</h2>
+		<div class="item">
+			<blockquote class="reference">
+				It is my pleasure to recommend Richard, his performance working as a consultant for Main St. Company proved that he will be a valuable addition to any company.
+			</blockquote>
+			<div class="name">
+				— Erlich Bachman
+			</div>
+		</div>
+	</section>
+	 -->
+
+	</div>
+
+	</body>
+</html>

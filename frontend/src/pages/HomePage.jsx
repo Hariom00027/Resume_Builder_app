@@ -6,7 +6,7 @@ import { resumeAPI, templateAPI } from '../services/api';
 
 const TICKER_ITEMS = [
   'AI Resume Builder', 'ATS Optimizer', 'Job Matcher', 'Auto-Tailor',
-  'Phrase Library', 'Export to PDF', 'Export to DOCX', 'Real-time Preview',
+  'Phrase Library', 'Export to PDF', 'Real-time Preview',
   'AI Resume Builder', 'ATS Optimizer', 'Job Matcher', 'Auto-Tailor',
 ];
 
@@ -16,7 +16,7 @@ const FEATURES = [
   { icon: '🎯', title: 'Job Description Matcher', desc: 'Paste a job description to instantly see which keywords you have and which you are missing.' },
   { icon: '✨', title: 'Auto-Tailor to Any Job', desc: 'Let AI rewrite your summary and experience bullets to perfectly match any job description you target.' },
   { icon: '📚', title: 'Phrase Library', desc: '100+ pre-written, recruiter-approved bullet phrases organized by role. Pick, click, and insert instantly.' },
-  { icon: '📄', title: 'Export to PDF & DOCX', desc: 'Download your polished resume as a PDF or Word doc in seconds — no formatting headaches.' },
+  { icon: '📄', title: 'Export to PDF', desc: 'Download your polished resume as a PDF in seconds — no formatting headaches.' },
 ];
 
 const BLOG_POSTS = [
@@ -31,14 +31,14 @@ const FAQS = [
   { q: 'Can I change my template after building my resume?', a: 'Yes! Your data is stored separately from the template. You can switch between any of our templates at any time without losing your content.' },
   { q: 'How far back should my resume go?', a: 'Generally 10-15 years of relevant experience. Older roles can be summarized or omitted unless they are highly relevant to the position you are applying for.' },
   { q: 'Is this resume builder ATS-friendly?', a: 'Absolutely. Our templates are designed with ATS compatibility in mind. We also provide a real-time ATS score and keyword analysis to help you maximize your chances.' },
-  { q: 'Can I download my resume as a Word document?', a: 'Yes! You can export your resume as a PDF or DOCX (Word) file at any time from the resume builder.' },
+  { q: 'Can I download my resume?', a: 'Yes! You can export your resume as a PDF file at any time from the resume builder.' },
 ];
 
 const STATS = [
   { value: '40+', label: 'Resume Templates' },
   { value: '6', label: 'AI-Powered Features' },
   { value: '100%', label: 'ATS Compatible' },
-  { value: '2', label: 'Export Formats (PDF & DOCX)' },
+  { value: '1', label: 'Export Format (PDF)' },
 ];
 
 // ── Sub-components ────────────────────────────────────────────────────────────
@@ -326,7 +326,7 @@ export default function HomePage() {
               <div className="flex items-center gap-3 mb-8 text-sm text-slate-500">
                 <span>✅ Free to start</span>
                 <span>·</span>
-                <span>📄 PDF & DOCX export</span>
+                <span>📄 PDF export</span>
                 <span>·</span>
                 <span>⚡ 5-minute setup</span>
               </div>
@@ -453,7 +453,7 @@ export default function HomePage() {
 
             {/* Mini stat pills */}
             <div className="flex justify-center gap-4 mt-6 flex-wrap">
-              {['✅ ATS Optimized', '🎨 40+ Designs', '📄 PDF & DOCX', '⚡ Instant Download'].map(pill => (
+              {['✅ ATS Optimized', '🎨 40+ Designs', '📄 PDF Export', '⚡ Instant Download'].map(pill => (
                 <span key={pill} className="text-xs font-semibold text-white/60 bg-white/5 border border-white/10 px-3 py-1.5 rounded-full">{pill}</span>
               ))}
             </div>

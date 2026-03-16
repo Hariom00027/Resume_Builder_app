@@ -1,5 +1,6 @@
 import React from 'react';
 import { Field, TextInput, TextArea, SmallButton } from './Field';
+import DatePicker from './DatePicker';
 
 // Bug 4.1 fixed: use stable `_id` as React key instead of array index.
 // This prevents React from re-using stale DOM nodes when an item is removed from the middle.
@@ -72,13 +73,17 @@ export default function ExperienceEditor({ value, onChange }) {
                 <TextInput value={it.company || ''} onChange={(e) => updateItem(idx, { company: e.target.value })} />
               </Field>
               <Field label="Start Date">
-                <TextInput placeholder="e.g., Jan 2023" value={it.startDate || ''} onChange={(e) => updateItem(idx, { startDate: e.target.value })} />
+                <DatePicker
+                  placeholder="DD/MM/YY"
+                  value={it.startDate || ''}
+                  onChange={(value) => updateItem(idx, { startDate: value })}
+                />
               </Field>
               <Field label="End Date">
-                <TextInput
-                  placeholder="e.g., Dec 2024"
+                <DatePicker
+                  placeholder="DD/MM/YY"
                   value={it.endDate || ''}
-                  onChange={(e) => updateItem(idx, { endDate: e.target.value })}
+                  onChange={(value) => updateItem(idx, { endDate: value })}
                   disabled={!!it.current}
                 />
               </Field>

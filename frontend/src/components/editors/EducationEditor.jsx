@@ -1,5 +1,6 @@
 import React from 'react';
 import { Field, TextInput, TextArea, SmallButton } from './Field';
+import DatePicker from './DatePicker';
 
 // Bug 4.1 fixed: stable `_id` key instead of array index.
 
@@ -51,10 +52,18 @@ export default function EducationEditor({ value, onChange }) {
                 <TextInput value={it.institution || ''} onChange={(e) => updateItem(idx, { institution: e.target.value })} />
               </Field>
               <Field label="Start Date">
-                <TextInput value={it.startDate || ''} onChange={(e) => updateItem(idx, { startDate: e.target.value })} />
+                <DatePicker
+                  placeholder="DD/MM/YY"
+                  value={it.startDate || ''}
+                  onChange={(value) => updateItem(idx, { startDate: value })}
+                />
               </Field>
               <Field label="End Date">
-                <TextInput value={it.endDate || ''} onChange={(e) => updateItem(idx, { endDate: e.target.value })} />
+                <DatePicker
+                  placeholder="DD/MM/YY"
+                  value={it.endDate || ''}
+                  onChange={(value) => updateItem(idx, { endDate: value })}
+                />
               </Field>
               <Field label="GPA (optional)">
                 <TextInput value={it.gpa || ''} onChange={(e) => updateItem(idx, { gpa: e.target.value })} />

@@ -154,6 +154,238 @@ Example format:
   }
 
   /**
+   * Generate section-specific content for resume sections
+   * Supports: summary, experience, education, projects, certifications, skills, achievements
+   */
+  async generateSectionContent(sectionType, sectionData = {}, keywords = '') {
+    if (!openai) {
+      throw new Error('OpenAI API key not configured');
+    }
+
+    try {
+      let systemPrompt = '';
+      let userPrompt = '';
+      let responseFormat = { type: 'json_object' };
+      let maxTokens = 800;
+      let temperature = 0.7;
+
+      // Section-specific configurations
+      switch (sectionType.toLowerCase()) {
+        case 'summary':
+        case 'about':
+        case 'profile':
+          systemPrompt = 'You are an expert resume writer specializing in professional summaries. Create compelling, concise summaries that highlight key achievements, skills, and career objectives.';
+          userPrompt = `Generate a professional resume summary (2-3 sentences, 100-150 words) based on the following information:
+
+${sectionData.experience ? `Work Experience:\n${Array.isArray(sectionData.experience) ? sectionData.experience.map(exp => `- ${exp.role || exp.position || exp.title || 'Role'} at ${exp.company || 'Company'}`).join('\n') : sectionData.experience}` : ''}
+
+${sectionData.education ? `Education:\n${Array.isArray(sectionData.education) ? sectionData.education.map(edu => `- ${edu.degree || edu.qualification || 'Degree'} from ${edu.institution || edu.school || 'Institution'}`).join('\n') : sectionData.education}` : ''}
+
+${sectionData.skills ? `Skills: ${Array.isArray(sectionData.skills) ? sectionData.skills.join(', ') : sectionData.skills}` : ''}
+
+${keywords ? `Target Keywords/Focus Areas: ${keywords}` : ''}
+
+Generate a professional summary that:
+- Highlights key achievements and skills
+- Is tailored for job applications
+- Is compelling and professional
+- Incorporates relevant keywords naturally
+
+Return a JSON object with a "content" field containing the summary text.`;
+          maxTokens = 200;
+          break;
+
+        case 'experience':
+        case 'work':
+        case 'employment':
+          systemPrompt = 'You are an expert resume writer specializing in work experience bullet points. Create achievement-oriented, impactful descriptions.';
+          userPrompt = `Generate 5 to 7 high-impact, professional resume bullet points for the following position:
+Role: ${sectionData.role || sectionData.position || sectionData.title || 'Role'}
+Company: ${sectionData.company || sectionData.organization || 'Company'}
+
+${sectionData.startDate || sectionData.endDate ? `Duration: ${sectionData.startDate || ''} - ${sectionData.endDate || 'Present'}` : ''}
+
+${keywords ? `Target Keywords/Focus Areas: ${keywords}` : ''}
+
+Requirements:
+- Start each bullet with a strong action verb (Led, Built, Developed, Scaled, etc.)
+- Focus on achievements and impact, not just responsibilities
+- Incorporate realistic metrics where possible (e.g., "[X]%", "[X] users", "[X] team members")
+- Keep them concise and tailored to industry standards
+- Use ATS-friendly language
+
+Return a JSON object with a "bullets" array containing the bullet point strings.`;
+          break;
+
+        case 'education':
+        case 'qualifications':
+          systemPrompt = 'You are an expert resume writer specializing in education sections. Create clear, professional education descriptions.';
+          userPrompt = `Generate professional education description content for:
+
+Degree: ${sectionData.degree || sectionData.qualification || 'Degree'}
+Institution: ${sectionData.institution || sectionData.school || sectionData.university || 'Institution'}
+${sectionData.fieldOfStudy ? `Field of Study: ${sectionData.fieldOfStudy}` : ''}
+${sectionData.gpa || sectionData.grade ? `GPA/Grade: ${sectionData.gpa || sectionData.grade}` : ''}
+${sectionData.startDate || sectionData.endDate ? `Duration: ${sectionData.startDate || ''} - ${sectionData.endDate || ''}` : ''}
+
+${keywords ? `Target Keywords/Focus Areas: ${keywords}` : ''}
+
+Generate:
+1. A concise description highlighting key coursework, achievements, or relevant details (2-3 sentences)
+2. 2-3 bullet points highlighting academic achievements, relevant coursework, honors, or projects
+
+Return a JSON object with:
+- "description": string (main description)
+- "bullets": array of strings (achievement bullets)`;
+          break;
+
+        case 'projects':
+        case 'project':
+          systemPrompt = 'You are an expert resume writer specializing in project descriptions. Create compelling project showcases.';
+          userPrompt = `Generate professional project description content for:
+
+Project Name: ${sectionData.name || sectionData.title || 'Project'}
+${sectionData.technologies ? `Technologies: ${Array.isArray(sectionData.technologies) ? sectionData.technologies.join(', ') : sectionData.technologies}` : ''}
+${sectionData.url ? `URL: ${sectionData.url}` : ''}
+${sectionData.startDate || sectionData.endDate ? `Duration: ${sectionData.startDate || ''} - ${sectionData.endDate || ''}` : ''}
+
+${keywords ? `Target Keywords/Focus Areas: ${keywords}` : ''}
+
+Generate:
+1. A brief project overview (1-2 sentences)
+2. 3-5 bullet points describing:
+   - Technologies used and technical challenges solved
+   - Key features and functionality
+   - Impact or results achieved
+   - Your specific contributions
+
+Return a JSON object with:
+- "description": string (project overview)
+- "bullets": array of strings (detailed bullet points)`;
+          break;
+
+        case 'certifications':
+        case 'certification':
+        case 'certificates':
+          systemPrompt = 'You are an expert resume writer specializing in certification descriptions. Create professional certification entries.';
+          userPrompt = `Generate professional certification description content for:
+
+Certification Name: ${sectionData.name || sectionData.title || 'Certification'}
+Issuer: ${sectionData.issuer || sectionData.organization || 'Issuer'}
+${sectionData.date ? `Date: ${sectionData.date}` : ''}
+${sectionData.url ? `URL: ${sectionData.url}` : ''}
+
+${keywords ? `Target Keywords/Focus Areas: ${keywords}` : ''}
+
+Generate:
+1. A brief description of what this certification demonstrates (1-2 sentences)
+2. 2-3 bullet points highlighting:
+   - Key skills or knowledge areas covered
+   - Relevance to the target role
+   - Any notable achievements or scores
+
+Return a JSON object with:
+- "description": string (certification overview)
+- "bullets": array of strings (key points)`;
+          break;
+
+        case 'skills':
+        case 'skill':
+          systemPrompt = 'You are an expert resume writer specializing in skills sections. Create well-organized, relevant skill descriptions.';
+          userPrompt = `Generate professional skills section content.
+
+${sectionData.existingSkills ? `Current Skills: ${Array.isArray(sectionData.existingSkills) ? sectionData.existingSkills.join(', ') : sectionData.existingSkills}` : ''}
+
+${keywords ? `Target Keywords/Focus Areas: ${keywords}` : ''}
+
+Generate:
+1. A categorized list of skills organized by:
+   - Technical Skills (programming languages, tools, frameworks)
+   - Soft Skills (leadership, communication, etc.)
+   - Domain Expertise (if applicable)
+2. For each category, provide 3-5 relevant skills
+3. Ensure skills are relevant and ATS-friendly
+
+Return a JSON object with:
+- "categories": object with category names as keys and arrays of skill strings as values
+- "bullets": array of strings (formatted as "Category: skill1, skill2, skill3")`;
+          break;
+
+        case 'achievements':
+        case 'achievement':
+        case 'awards':
+        case 'award':
+          systemPrompt = 'You are an expert resume writer specializing in achievements and awards. Create impactful achievement descriptions.';
+          userPrompt = `Generate professional achievement/award description content.
+
+${sectionData.name || sectionData.title ? `Achievement Name: ${sectionData.name || sectionData.title}` : ''}
+${sectionData.issuer || sectionData.organization ? `Issuer: ${sectionData.issuer || sectionData.organization}` : ''}
+${sectionData.date ? `Date: ${sectionData.date}` : ''}
+
+${keywords ? `Target Keywords/Focus Areas: ${keywords}` : ''}
+
+Generate 3-5 bullet points describing:
+- What the achievement represents
+- The impact or significance
+- Any metrics or recognition received
+- Relevance to professional goals
+
+Return a JSON object with a "bullets" array containing the achievement bullet point strings.`;
+          break;
+
+        default:
+          // Generic fallback for unknown sections
+          systemPrompt = 'You are an expert resume writer. Create professional, well-structured content.';
+          userPrompt = `Generate professional resume content for section type: ${sectionType}
+
+${JSON.stringify(sectionData, null, 2)}
+
+${keywords ? `Target Keywords/Focus Areas: ${keywords}` : ''}
+
+Generate relevant, professional content appropriate for this resume section.
+
+Return a JSON object with:
+- "content": string (main content)
+- "bullets": array of strings (if applicable)`;
+      }
+
+      const response = await openai.chat.completions.create({
+        model: 'gpt-4o',
+        messages: [
+          { role: 'system', content: systemPrompt + ' Always return valid JSON only, no markdown formatting.' },
+          { role: 'user', content: userPrompt }
+        ],
+        temperature: temperature,
+        max_tokens: maxTokens,
+        response_format: responseFormat
+      });
+
+      const content = response.choices[0].message.content;
+      const parsed = JSON.parse(content);
+      
+      // Normalize response format
+      if (parsed.bullets && Array.isArray(parsed.bullets)) {
+        return parsed.bullets;
+      } else if (parsed.content) {
+        return [parsed.content];
+      } else if (typeof parsed === 'string') {
+        return [parsed];
+      } else {
+        // Try to extract any array from the response
+        const arrayKeys = Object.keys(parsed).filter(key => Array.isArray(parsed[key]));
+        if (arrayKeys.length > 0) {
+          return parsed[arrayKeys[0]];
+        }
+        throw new Error('AI response did not contain expected format');
+      }
+      
+    } catch (error) {
+      console.error(`Error generating content for section ${sectionType}:`, error);
+      throw new Error(`Failed to generate content for ${sectionType} section`);
+    }
+  }
+
+  /**
    * Match a resume's keywords against a job description
    * Returns matched keywords, missing keywords, and a match score
    */
@@ -990,6 +1222,186 @@ IMPORTANT:
   }
 
   /**
+   * Extract image data from formData and return both images and non-image data separately
+   */
+  separateImageData(formData) {
+    const images = {};
+    const nonImageData = {};
+    
+    Object.keys(formData).forEach(key => {
+      const value = formData[key];
+      if (!value || value.toString().trim() === '') return;
+      
+      // Check if this is an image field (by field name or if value is a data URI)
+      const isImageField = key.toLowerCase().includes('image') || 
+                          key.toLowerCase().includes('photo') || 
+                          key.toLowerCase().includes('avatar') ||
+                          (typeof value === 'string' && value.startsWith('data:image/'));
+      
+      if (isImageField) {
+        images[key] = value;
+      } else {
+        nonImageData[key] = value;
+      }
+    });
+    
+    return { images, nonImageData };
+  }
+
+  /**
+   * Transform flat formData structure (sectionSelector__fieldName__index) into a more structured format
+   */
+  transformFormDataForAI(formData) {
+    const structured = {};
+    
+    // Group data by section selector
+    Object.keys(formData).forEach(key => {
+      if (!formData[key] || formData[key].toString().trim() === '') return;
+      
+      const parts = key.split('__');
+      if (parts.length < 2) {
+        // Simple key-value pair
+        structured[key] = formData[key];
+        return;
+      }
+      
+      const selector = parts[0];
+      const fieldName = parts[1];
+      const index = parts.length > 2 ? parseInt(parts[2]) : null;
+      
+      if (!structured[selector]) {
+        structured[selector] = {};
+      }
+      
+      if (index !== null && !isNaN(index)) {
+        // Array entry
+        if (!structured[selector].entries) {
+          structured[selector].entries = [];
+        }
+        if (!structured[selector].entries[index]) {
+          structured[selector].entries[index] = {};
+        }
+        structured[selector].entries[index][fieldName] = formData[key];
+      } else {
+        // Single field
+        structured[selector][fieldName] = formData[key];
+      }
+    });
+    
+    return structured;
+  }
+
+  /**
+   * Directly inject images into HTML template without AI processing
+   * Images are placed as-is using their data URIs
+   */
+  injectImagesDirectly(templateHtml, images) {
+    if (!images || Object.keys(images).length === 0) {
+      return templateHtml;
+    }
+    
+    let html = templateHtml;
+    let replacedCount = 0;
+    
+    // Process each image
+    Object.keys(images).forEach(key => {
+      const imageData = images[key];
+      if (!imageData || typeof imageData !== 'string') {
+        console.warn(`[OpenAI Service] Skipping invalid image data for key: ${key}`);
+        return;
+      }
+      
+      // Validate it's a data URI
+      if (!imageData.startsWith('data:image/')) {
+        console.warn(`[OpenAI Service] Image data is not a valid data URI for key: ${key}`);
+        return;
+      }
+      
+      // Extract selector and field name from key (format: selector__fieldName or selector__fieldName__index)
+      const parts = key.split('__');
+      if (parts.length < 2) {
+        console.warn(`[OpenAI Service] Invalid image key format: ${key}`);
+        return;
+      }
+      
+      const sectionSelector = parts[0];
+      const fieldName = parts[1].toLowerCase();
+      
+      console.log(`[OpenAI Service] Injecting image for section: ${sectionSelector}, field: ${fieldName}`);
+      
+      // Strategy 1: Use field selector if available (from template analysis)
+      // The field selector is typically stored in the formData key structure
+      // We'll try to find img tags that match common image patterns
+      
+      // Strategy 2: Find img tags within the section selector
+      // Escape special regex characters
+      const escapedSelector = sectionSelector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      
+      // Pattern to find the section containing the selector
+      const sectionPattern = new RegExp(`(<[^>]*(?:class|id)=["'][^"']*${escapedSelector}[^"']*["'][^>]*>)([\\s\\S]*?)(</[^>]+>)`, 'i');
+      
+      let sectionFound = false;
+      html = html.replace(sectionPattern, (match, openingTag, content, closingTag) => {
+        sectionFound = true;
+        
+        // Look for img tags within this section
+        const imgPattern = /<img([^>]*src=["'])([^"']*)(["'][^>]*)>/gi;
+        const updatedContent = content.replace(imgPattern, (imgMatch, before, src, after) => {
+          // Replace if it's a placeholder, default, or not already a data URI
+          if (src && (!src.startsWith('data:') || src.includes('placeholder') || src.includes('default'))) {
+            console.log(`[OpenAI Service] Replacing image src in section ${sectionSelector}`);
+            replacedCount++;
+            return `<img${before}${imageData}${after}>`;
+          }
+          return imgMatch;
+        });
+        
+        return openingTag + updatedContent + closingTag;
+      });
+      
+      // Strategy 3: If section not found, try direct img tag replacement by common image class/id patterns
+      if (!sectionFound) {
+        const imageClassPatterns = [
+          // img with image-related classes
+          /<img([^>]*class=["'][^"']*(?:photo|profile-image|avatar|image|profile-pic|profile-picture)[^"']*["'][^>]*src=["'])([^"']*)(["'][^>]*>)/gi,
+          // img with image-related id
+          /<img([^>]*id=["'][^"']*(?:photo|profile-image|avatar|image|profile-pic|profile-picture)[^"']*["'][^>]*src=["'])([^"']*)(["'][^>]*>)/gi,
+          // img with src first, then image-related class/id
+          /<img([^>]*src=["'])([^"']*)(["'][^>]*(?:class|id)=["'][^"']*(?:photo|profile-image|avatar|image|profile-pic|profile-picture)[^"']*["'][^>]*>)/gi
+        ];
+        
+        imageClassPatterns.forEach(pattern => {
+          html = html.replace(pattern, (match, before, src, after) => {
+            // Only replace if not already a data URI or if it's a placeholder
+            if (src && (!src.startsWith('data:') || src.includes('placeholder') || src.includes('default'))) {
+              console.log(`[OpenAI Service] Replacing image src by class/id pattern`);
+              replacedCount++;
+              return `${before}${imageData}${after}`;
+            }
+            return match;
+          });
+        });
+      }
+      
+      // Strategy 4: Last resort - replace first img tag found (if no better match)
+      if (replacedCount === 0) {
+        const firstImgPattern = /<img([^>]*src=["'])([^"']*)(["'][^>]*)>/i;
+        html = html.replace(firstImgPattern, (match, before, src, after) => {
+          if (src && (!src.startsWith('data:') || src.includes('placeholder'))) {
+            console.log(`[OpenAI Service] Replacing first img tag found (fallback)`);
+            replacedCount++;
+            return `<img${before}${imageData}${after}>`;
+          }
+          return match;
+        });
+      }
+    });
+    
+    console.log(`[OpenAI Service] Successfully injected ${replacedCount} image(s) directly into HTML`);
+    return html;
+  }
+
+  /**
    * Inject unstructured JSON data into an HTML template using AI
    */
   async injectTemplateData(templateHtml, formData, mode = 'edit') {
@@ -998,6 +1410,36 @@ IMPORTANT:
     }
 
     try {
+      // Validate inputs
+      if (!templateHtml || typeof templateHtml !== 'string') {
+        throw new Error('templateHtml must be a non-empty string');
+      }
+      if (!formData || typeof formData !== 'object') {
+        throw new Error('formData must be an object');
+      }
+
+      // Separate images from other data - images will be injected directly, NOT through AI
+      // All text fields (summary, experience, education, skills, etc.) will be processed by AI
+      const { images, nonImageData } = this.separateImageData(formData);
+      
+      console.log(`[OpenAI Service] Separated ${Object.keys(images).length} image(s) from ${Object.keys(nonImageData).length} text field(s)`);
+      console.log(`[OpenAI Service] Images will bypass AI and be injected directly. Text fields will be processed by AI.`);
+
+      // Transform non-image formData into a more structured format for better AI understanding
+      // Only text data goes to AI - images are excluded
+      const structuredData = this.transformFormDataForAI(nonImageData);
+      
+      // Limit template HTML size to avoid token limits (keep structure intact)
+      let htmlToUse = templateHtml;
+      const MAX_HTML_LENGTH = 50000;
+      if (templateHtml.length > MAX_HTML_LENGTH) {
+        // Keep first and last portions to preserve structure
+        const firstPart = templateHtml.substring(0, 25000);
+        const lastPart = templateHtml.substring(templateHtml.length - 25000);
+        htmlToUse = firstPart + '\n\n... [middle section truncated for length] ...\n\n' + lastPart;
+        console.log(`[OpenAI Service] HTML truncated from ${templateHtml.length} to ${htmlToUse.length} characters`);
+      }
+
       let modeInstructions = '';
       if (mode === 'print') {
         modeInstructions = `PRINT MODE: If any section or element in the template (like Experience rows, Education blocks, or entire containers) has no corresponding real data in the USER DATA, YOU MUST COMPLETELY REMOVE that element from the HTML, INCLUDING any associated headers or titles for that section. The final output must be a clean resume with zero dummy/placeholder data and zero empty section headers.`;
@@ -1010,22 +1452,25 @@ IMPORTANT:
 CRITICAL INSTRUCTIONS:
 1. Preserve 100% of the original CSS classes, IDs, styles, and HTML layout. DO NOT change the structure or CSS.
 2. Only replace the visible text content (like names, roles, dates, descriptions) with the data provided below.
-3. If an array (like Experience or Education) has multiple items, you may duplicate the existing HTML row/item structure to fit all items perfectly.
-4. ${modeInstructions}
-5. Return ONLY the final raw HTML code. Do not include markdown formatting like \`\`\`html.
+3. The USER DATA is structured by CSS selector. Each selector corresponds to a section in the HTML template.
+4. For array sections (entries array), duplicate the HTML structure for each entry.
+5. Match fields by their names (e.g., "fullName", "email", "role", "company", "achievements", etc.) to the corresponding elements in the HTML.
+6. IMPORTANT: Do NOT modify or replace any image tags (<img>). Images are handled separately and will be injected directly. Only process text content.
+7. ${modeInstructions}
+8. Return ONLY the final raw HTML code. Do not include markdown formatting like \`\`\`html or any explanatory text.
 
-USER DATA:
-${JSON.stringify(formData, null, 2)}
+USER DATA (structured by CSS selector):
+${JSON.stringify(structuredData, null, 2)}
 
 ORIGINAL HTML TEMPLATE:
-${templateHtml}`;
+${htmlToUse}`;
 
       const response = await openai.chat.completions.create({
         model: 'gpt-4o-mini',
         messages: [
           { 
             role: 'system', 
-            content: 'You are an intelligent HTML template binder. Your only output is raw, strictly valid HTML.' 
+            content: 'You are an intelligent HTML template binder. Your only output is raw, strictly valid HTML. Never include markdown code blocks or explanatory text.' 
           },
           { role: 'user', content: prompt }
         ],
@@ -1034,7 +1479,7 @@ ${templateHtml}`;
       });
 
       if (!response || !response.choices || !response.choices[0] || !response.choices[0].message) {
-        throw new Error('Invalid response from OpenAI API');
+        throw new Error('Invalid response from OpenAI API: Missing response structure');
       }
 
       let injectedHtml = response.choices[0].message.content.trim();
@@ -1043,15 +1488,42 @@ ${templateHtml}`;
       if (injectedHtml.startsWith('```')) {
         injectedHtml = injectedHtml.replace(/^```(?:html)?\s*/i, '').replace(/\s*```$/i, '');
       }
+      
+      // Remove any leading/trailing whitespace and newlines
+      injectedHtml = injectedHtml.trim();
 
+      // Validate that we got HTML back
+      if (!injectedHtml || injectedHtml.length < 100) {
+        throw new Error('AI returned invalid or empty HTML response');
+      }
+
+      // Inject images directly into the HTML (bypassing AI)
+      if (Object.keys(images).length > 0) {
+        console.log(`[OpenAI Service] Injecting ${Object.keys(images).length} image(s) directly into HTML`);
+        injectedHtml = this.injectImagesDirectly(injectedHtml, images);
+      }
+
+      console.log(`[OpenAI Service] Successfully injected data. Output HTML length: ${injectedHtml.length}`);
       return injectedHtml;
     } catch (error) {
-      console.error('Error injecting template data:', error);
+      console.error('[OpenAI Service] Error injecting template data:', error);
+      console.error('[OpenAI Service] Error details:', {
+        name: error.name,
+        message: error.message,
+        stack: error.stack
+      });
+      
       if (error.response) {
-        console.error('OpenAI API error:', error.response.status, error.response.data);
-        throw new Error(`OpenAI API error: ${error.response.status}`);
+        console.error('[OpenAI Service] OpenAI API error response:', {
+          status: error.response.status,
+          statusText: error.response.statusText,
+          data: error.response.data
+        });
+        throw new Error(`OpenAI API error: ${error.response.status} - ${JSON.stringify(error.response.data)}`);
       }
-      throw new Error('Failed to inject template data: ' + (error.message || 'Unknown error'));
+      
+      // Re-throw with more context
+      throw new Error(`Failed to inject template data: ${error.message || 'Unknown error'}`);
     }
   }
 }

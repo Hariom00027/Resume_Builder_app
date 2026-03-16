@@ -1,5 +1,6 @@
 import React from 'react';
 import { Field, TextInput, SmallButton } from './Field';
+import DatePicker from './DatePicker';
 
 // Bug 4.1 fix applied: use stable _id key instead of array index.
 function emptyCert() {
@@ -40,7 +41,11 @@ export default function CertificationsEditor({ value, onChange }) {
                 <TextInput value={it.issuer || ''} onChange={(e) => updateItem(idx, { issuer: e.target.value })} />
               </Field>
               <Field label="Date (optional)">
-                <TextInput value={it.date || ''} onChange={(e) => updateItem(idx, { date: e.target.value })} />
+                <DatePicker
+                  placeholder="DD/MM/YY"
+                  value={it.date || ''}
+                  onChange={(value) => updateItem(idx, { date: value })}
+                />
               </Field>
               <Field label="URL (optional)">
                 <TextInput value={it.url || ''} onChange={(e) => updateItem(idx, { url: e.target.value })} />

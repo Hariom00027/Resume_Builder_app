@@ -3,7 +3,80 @@ const ResumeTemplate = require('../models/ResumeTemplate');
 
 class PDFService {
   /**
-   * Generate PDF from resume
+   * Inject CSS into an HTML document that:
+   *  - prevents sections from being cut mid-element across pages
+   *  - ensures the body/html can extend beyond one page (overrides overflow:hidden)
+   *  - removes the gray screen-preview background so the PDF is pure white
+   */
+  injectPdfStyles(html) {
+    const css = `
+<style>
+  /* ── Page-break prevention ── */
+  .section, section {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+  h2, h3 {
+    break-after: avoid !important;
+    page-break-after: avoid !important;
+  }
+  li { break-inside: avoid !important; }
+
+  /* ── Override screen-only constraints so multi-page PDFs render correctly ── */
+  @media print {
+    html, body {
+      overflow: visible !important;
+      height: auto !important;
+      background: white !important;
+    }
+    /* Remove the floating preview margin on SaarthiX-style templates */
+    .resume { margin: 0 !important; }
+  }
+</style>`;
+
+    if (html.includes('</head>')) return html.replace('</head>', `${css}\n</head>`);
+    return css + html;
+  }
+
+  /**
+   * Generate a PDF from a pre-rendered HTML string.
+   * Used when the frontend sends the exact HTML it is showing in the preview
+   * so the PDF matches pixel-perfectly (overrides, deleted sections, colours, etc.).
+   */
+  async generatePDFFromHTML(html) {
+    let browser;
+    try {
+      browser = await puppeteer.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+      });
+
+      const page = await browser.newPage();
+
+      // Inject page-break + print-mode overrides before handing to Puppeteer
+      const printHtml = this.injectPdfStyles(html);
+
+      await page.setContent(printHtml, { waitUntil: 'networkidle0' });
+
+      const pdf = await page.pdf({
+        format: 'A4',
+        printBackground: true,
+        // Let the template's own CSS control margins/padding (already tuned for A4).
+        margin: { top: '0', right: '0', bottom: '0', left: '0' }
+      });
+
+      await browser.close();
+      return pdf;
+    } catch (error) {
+      if (browser) await browser.close();
+      console.error('Error generating PDF from HTML:', error);
+      throw new Error('Failed to generate PDF');
+    }
+  }
+
+  /**
+   * Legacy: Generate PDF by re-rendering from the resume data + template.
+   * This path is used as a fallback when no pre-rendered HTML is supplied.
    */
   async generatePDF(resume, template) {
     let browser;
@@ -16,7 +89,8 @@ class PDFService {
       const page = await browser.newPage();
       
       // Render HTML from template
-      const html = this.renderResumeHTML(resume, template);
+      const rawHtml = this.renderResumeHTML(resume, template);
+      const html = this.injectPdfStyles(rawHtml);
       
       await page.setContent(html, { waitUntil: 'networkidle0' });
       
@@ -24,12 +98,7 @@ class PDFService {
       const pdf = await page.pdf({
         format: 'A4',
         printBackground: true,
-        margin: {
-          top: '0.5in',
-          right: '0.5in',
-          bottom: '0.5in',
-          left: '0.5in'
-        }
+        margin: { top: '0', right: '0', bottom: '0', left: '0' }
       });
 
       await browser.close();

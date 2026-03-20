@@ -151,12 +151,23 @@ class AtsScoringService {
     };
   }
 
+  _extractFieldName(key) {
+    const lowerKey = String(key || '').toLowerCase();
+    if (!lowerKey.includes('__')) return lowerKey;
+    const parts = lowerKey.split('__').filter(Boolean);
+    // Keys often look like: experience__description__0
+    // We want the *field name* ("description"), not the index ("0").
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const p = parts[i];
+      if (!/^\d+$/.test(p)) return p;
+    }
+    return parts[parts.length - 1] || lowerKey;
+  }
+
   // Helper to check if any field matches a list of possible names and has a value
   _hasValueMatcher(formData, possibleNames) {
     return Object.keys(formData).some(key => {
-      const lowerKey = key.toLowerCase();
-      // Only check the field name part (after the last underscore usually or exactly)
-      const fieldName = lowerKey.includes('__') ? lowerKey.split('__').pop() : lowerKey;
+      const fieldName = this._extractFieldName(key);
       if (possibleNames.some(p => fieldName.includes(p))) {
         return !!formData[key];
       }
@@ -168,8 +179,7 @@ class AtsScoringService {
   _getValueMatcher(formData, possibleNames) {
     let result = '';
     Object.keys(formData).forEach(key => {
-      const lowerKey = key.toLowerCase();
-      const fieldName = lowerKey.includes('__') ? lowerKey.split('__').pop() : lowerKey;
+      const fieldName = this._extractFieldName(key);
       if (possibleNames.some(p => fieldName.includes(p))) {
         if (formData[key]) result += formData[key] + ' ';
       }

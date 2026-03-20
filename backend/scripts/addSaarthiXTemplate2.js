@@ -269,13 +269,13 @@ Creator of the groundbreaking middle-out compression algorithm that achieved rec
 
   <ul>
 
-  <li>Stanford University, Palo Alto</li>
+  <li><b>College:</b> Stanford University, Palo Alto</li>
 
-  <li>2010 – 2013</li>
+  <li><b>year:</b> 2010 – 2013</li>
 
-  <li>GPA: 3.8</li>
+  <li><b>GPA:</b> 3.8</li>
 
-  <li>Electives / Subjects: Algorithms, Distributed Systems, Information Theory</li>
+  <li><b>Electives / Subjects:</b> Algorithms, Distributed Systems, Information Theory</li>
 
   </ul>
 
@@ -283,13 +283,13 @@ Creator of the groundbreaking middle-out compression algorithm that achieved rec
 
   <ul>
 
-  <li>Tulsa Central High School</li>
+  <li><b>College:</b> Tulsa Central High School</li>
 
-  <li>2008 – 2010</li>
+  <li><b>year:</b> 2008 – 2010</li>
 
-  <li>Percentage: 92%</li>
+  <li><b>GPA:</b> 92%</li>
 
-  <li>Electives / Subjects: Mathematics, Physics, Computer Science</li>
+  <li><b>Electives / Subjects:</b> Mathematics, Physics, Computer Science</li>
 
   </ul>
 
@@ -297,11 +297,11 @@ Creator of the groundbreaking middle-out compression algorithm that achieved rec
 
   <ul>
 
-  <li>Tulsa Public School</li>
+  <li><b>College:</b> Tulsa Public School</li>
 
-  <li>2006 – 2008</li>
+  <li><b>year:</b> 2006 – 2008</li>
 
-  <li>Percentage: 89%</li>
+  <li><b>GPA:</b> 89%</li>
 
   </ul>
 </div>
@@ -356,12 +356,13 @@ async function addTemplate() {
             ]
           },
           {
-            title: 'My DNA (Key Achievements)',
+            title: 'My DNA',
             selector: '#container-dna',
             type: 'awards',
             isArray: true,
             fields: [
-              { name: 'description', label: 'Metric/Achievement', type: 'textarea', selector: '#container-dna li' }
+              { name: 'heading', label: 'DNA Heading', type: 'text', selector: '#container-dna li b' },
+              { name: 'subtext', label: 'DNA Subtext', type: 'textarea', selector: '#container-dna li' }
             ]
           },
           {
@@ -380,12 +381,21 @@ async function addTemplate() {
             ]
           },
           {
-            title: 'Skills',
-            selector: '#container-skills',
+            title: 'Technical Skills',
+            selector: '#container-skills li:first-of-type',
             type: 'skills',
-            isArray: true,
+            isArray: false,
             fields: [
-              { name: 'name', label: 'Skill Set', type: 'text', selector: '#container-skills li' }
+              { name: 'technicalSkills', label: 'Technical Skills', type: 'textarea', selector: '#container-skills li:first-of-type' }
+            ]
+          },
+          {
+            title: 'Non-Technical Skills',
+            selector: '#container-skills li:nth-of-type(2)',
+            type: 'skills',
+            isArray: false,
+            fields: [
+              { name: 'nonTechnicalSkills', label: 'Non-Technical Skills', type: 'textarea', selector: '#container-skills li:nth-of-type(2)' }
             ]
           },
           {

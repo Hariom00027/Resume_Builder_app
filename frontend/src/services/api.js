@@ -60,7 +60,9 @@ export const atsScoringAPI = {
 
 // Export API
 export const exportAPI = {
-  pdf: (id) => api.post(`/export/pdf/${id}`, {}, { responseType: 'blob' })
+  // html: pre-rendered HTML string from the preview (optional but preferred so
+  //       the PDF exactly matches what the user sees, including deleted sections).
+  pdf: (id, html) => api.post(`/export/pdf/${id}`, { html: html || '' }, { responseType: 'blob' })
 };
 
 export default api;

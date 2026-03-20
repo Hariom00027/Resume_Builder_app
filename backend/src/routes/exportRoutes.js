@@ -13,17 +13,26 @@ router.post('/pdf/:id', async (req, res) => {
       return res.status(404).json({ error: 'Resume not found' });
     }
 
-    const template = await ResumeTemplate.findOne({ templateId: resume.templateId });
-    if (!template) {
-      return res.status(404).json({ error: 'Template not found' });
-    }
+    // The frontend sends the pre-rendered HTML when available.
+    // This ensures the PDF matches the preview exactly (templateOverrides, deleted
+    // sections, AI edits, customization colours — all already applied on the client).
+    const preRenderedHtml = typeof req.body.html === 'string' ? req.body.html.trim() : '';
 
-    const pdf = await pdfService.generatePDF(resume, template);
+    let pdf;
+    if (preRenderedHtml) {
+      pdf = await pdfService.generatePDFFromHTML(preRenderedHtml);
+    } else {
+      // Fallback: re-render from the template + structured fields (legacy path).
+      const template = await ResumeTemplate.findOne({ templateId: resume.templateId });
+      if (!template) return res.status(404).json({ error: 'Template not found' });
+      pdf = await pdfService.generatePDF(resume, template);
+    }
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${resume.title || 'resume'}.pdf"`);
     res.send(pdf);
   } catch (error) {
+    console.error('PDF export error:', error);
     res.status(500).json({ error: error.message });
   }
 });

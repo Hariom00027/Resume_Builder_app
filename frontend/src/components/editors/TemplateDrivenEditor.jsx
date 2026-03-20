@@ -10,7 +10,7 @@ import AITemplateEditor from './AITemplateEditor';
 // All structured content editing (Personal Info, Experience, etc.) lives in the
 // dedicated sidebar sections in ResumeBuilder.jsx.
 
-export default function TemplateDrivenEditor({ resume, onChangeResume, aiPreviewMode }) {
+export default function TemplateDrivenEditor({ resume, onChangeResume, aiPreviewMode, focusAiSectionSelector }) {
   const [useAI, setUseAI] = useState(true);
   const [template, setTemplate] = useState(null);
   const [open, setOpen] = useState(null);
@@ -57,7 +57,12 @@ export default function TemplateDrivenEditor({ resume, onChangeResume, aiPreview
             Switch to HTML Editor
           </button>
         </div>
-        <AITemplateEditor resume={resume} onChangeResume={onChangeResume} aiPreviewMode={aiPreviewMode} />
+        <AITemplateEditor
+          resume={resume}
+          onChangeResume={onChangeResume}
+          aiPreviewMode={aiPreviewMode}
+          focusSectionSelector={focusAiSectionSelector}
+        />
       </div>
     );
   }

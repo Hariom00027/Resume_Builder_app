@@ -56,7 +56,6 @@ export function DatePicker({ value, onChange, onBlur, placeholder, disabled, cla
   };
 
   const inputValue = parseDateForInput(value);
-  const displayValue = formatDateForDisplay(value);
 
   const handleChange = (e) => {
     const isoDate = e.target.value;

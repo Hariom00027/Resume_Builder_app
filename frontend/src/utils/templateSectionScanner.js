@@ -48,9 +48,11 @@ export function scanTemplateSections(html) {
 
   // If nothing matched, fall back to top-level <section> blocks with a heading
   if (sections.length === 0) {
-    const candidates = Array.from(doc.querySelectorAll('section'));
+    // Many templates (including SaarthiX Special 1) use div.section blocks.
+    const candidates = Array.from(doc.querySelectorAll('section, .section'));
     candidates.forEach((sec, idx) => {
-      const selector = `section:nth-of-type(${idx + 1})`;
+      const isSectionTag = sec.tagName === 'SECTION';
+      const selector = isSectionTag ? `section:nth-of-type(${idx + 1})` : `.section:nth-of-type(${idx + 1})`;
       const heading =
         sec.querySelector('h1,h2,h3,.section-title,.section-header,.container-block-title')?.textContent?.trim() ||
         `Section ${idx + 1}`;
@@ -64,6 +66,9 @@ export function scanTemplateSections(html) {
 
   return sections;
 }
+
+/** Sentinel stored in templateOverrides to mark a section as user-deleted. */
+export const SECTION_DELETED_SENTINEL = '__sx_hidden__';
 
 export function applyTemplateOverrides(html, overrides) {
   if (!overrides || typeof overrides !== 'object') return html;
@@ -81,10 +86,37 @@ export function applyTemplateOverrides(html, overrides) {
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, 'text/html');
 
+  const resolveOverrideElement = (selector) => {
+    if (!selector) return null;
+    let el = doc.querySelector(selector);
+    if (el) return el;
+
+    // Fallback for SaarthiX right-panel selectors that use type-position pseudo selectors.
+    const nthMatch = selector.match(/^\.right \.section:nth-of-type\((\d+)\)$/);
+    if (nthMatch) {
+      const idx = Math.max(0, Number(nthMatch[1]) - 1);
+      el = doc.querySelectorAll('.right .section')[idx] || null;
+    }
+    if (!el && /^\.right \.section:first-of-type$/.test(selector)) {
+      el = doc.querySelectorAll('.right .section')[0] || null;
+    }
+    if (!el && /^\.right \.section:last-of-type$/.test(selector)) {
+      const all = doc.querySelectorAll('.right .section');
+      el = all[all.length - 1] || null;
+    }
+    return el;
+  };
+
   for (const [selector, overrideHtml] of entries) {
     try {
-      const el = doc.querySelector(selector);
-      if (el && overrideHtml) {
+      const el = resolveOverrideElement(selector);
+      if (!el) continue;
+
+      if (overrideHtml === SECTION_DELETED_SENTINEL) {
+        // User deleted this section — hide it from the preview without removing the
+        // DOM node so CSS selectors like :nth-of-type() on siblings still work.
+        el.style.setProperty('display', 'none', 'important');
+      } else {
         // Preserve the element's classes, id, and other attributes
         // Only replace the inner content - this maintains CSS styling and positioning
         el.innerHTML = overrideHtml;

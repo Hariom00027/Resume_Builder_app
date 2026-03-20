@@ -9,8 +9,26 @@ class TemplateController {
       if (category) {
         query.category = category;
       }
+      // Always prioritize SaarthiX Specials first when listing templates.
+      // Then, for a stable UX, sort by name A→Z within each priority bucket.
+      if (!category) {
+        const templates = await ResumeTemplate.aggregate([
+          { $match: query },
+          {
+            $addFields: {
+              __categoryPriority: {
+                $cond: [{ $eq: ['$category', 'saarthix-specials'] }, 0, 1]
+              }
+            }
+          },
+          { $sort: { __categoryPriority: 1, name: 1 } },
+          { $project: { __categoryPriority: 0 } }
+        ]);
+        return res.json(templates);
+      }
+
       const templates = await ResumeTemplate.find(query).sort({ name: 1 });
-      res.json(templates);
+      return res.json(templates);
     } catch (error) {
       res.status(500).json({ error: error.message });
     }

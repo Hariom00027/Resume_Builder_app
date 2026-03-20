@@ -46,12 +46,17 @@ padding:28px 24px;
 box-sizing:border-box;
 }
 
+.photo{
+text-align:center;
+}
+
 .photo img{
-width:105px;
-height:105px;
+width:125px;
+height:125px;
 border-radius:50%;
 object-fit:cover;
-margin-bottom:18px;
+display:block;
+margin:0 auto 18px auto;
 }
 
 .left h2{
@@ -231,7 +236,7 @@ CEO/President at Pied Piper
 
 <div class="section">
 
-<h2>Profile</h2>
+<h2>My DNA</h2>
 
 <h3>Entrepreneurial Mindset</h3>
 
@@ -292,13 +297,15 @@ CEO/President at Pied Piper
 
 <h2>Education</h2>
 
-<h3>B.tech</h3>
+<p><b>Graduation:</b> B.tech</p>
 
-<p>Bundelkhand University</p>
+<p><b>College:</b> Bundelkhand University</p>
 
-<p>2022 – 2023</p>
+<p><b>year:</b> 2022 – 2023</p>
 
-<p>3.8</p>
+<p><b>GPA:</b> 3.8</p>
+
+<p><b>Electives / Subjects:</b> Algorithms, Distributed Systems, Information Theory</p>
 
 </div>
 

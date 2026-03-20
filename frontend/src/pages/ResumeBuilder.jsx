@@ -17,6 +17,7 @@ import TemplateDrivenEditor from '../components/editors/TemplateDrivenEditor';
 import AtsScoreWidget from '../components/AtsScoreWidget';
 import JobDescriptionMatcher from '../components/JobDescriptionMatcher';
 import PhraseLibrary from '../components/PhraseLibrary';
+import { buildTemplatePreviewSrcDoc } from '../utils/templatePreviewDoc';
 
 // ─── ErrorBoundary (Bug 4.5) ──────────────────────────────────────────────────
 class EditorErrorBoundary extends React.Component {
@@ -101,12 +102,15 @@ function ResumeBuilder() {
   const [showTemplateSwitch, setShowTemplateSwitch] = useState(false);
   const [allTemplates, setAllTemplates] = useState([]);
   const [loadingTemplates, setLoadingTemplates] = useState(false);
+  const [focusAiSectionSelector, setFocusAiSectionSelector] = useState(null);
+  // Holds the latest rendered HTML from ResumePreview so the PDF export can
+  // send the exact same HTML to the backend (including all overrides / deleted sections).
+  const latestRenderedHTMLRef = React.useRef('');
   const { toasts, show: showToast } = useToast();
 
   // ─── Load all templates for the Change Template modal ─────────────────────────
   const openTemplateSwitcher = async () => {
     setShowTemplateSwitch(true);
-    if (allTemplates.length > 0) return; // already loaded
     setLoadingTemplates(true);
     try {
       const resp = await templateAPI.getAll();
@@ -148,10 +152,12 @@ function ResumeBuilder() {
   const createNewResume = () => {
     const params = new URLSearchParams(location.search);
     const templateFromQuery = params.get('template');
+    const templateId = templateFromQuery || 'santiago';
+
     const newResume = {
       title: 'My Resume',
-      templateId: templateFromQuery || 'santiago',
-      personalInfo: { fullName: '', email: '', phone: '', location: '' },
+      templateId,
+      personalInfo: { fullName: '', email: '', phone: '', location: '', linkedin: '' },
       summary: '',
       experience: [],
       education: [],
@@ -184,12 +190,31 @@ function ResumeBuilder() {
   // that the server may have stripped or truncated.
   const handleSave = useCallback(async (resumeToSave = resume) => {
     if (!resumeToSave) return;
-    
+
+    // Strip base64 image strings from aiFormData before sending to the backend.
+    // They balloon the HTTP payload (a 5 MB image → ~6.7 MB base64) and can push
+    // the MongoDB document past its 16 MB limit.  The actual image is already
+    // persisted in personalInfo.profileImage, so nothing is lost.
+    // aiFormData itself is NOT in the Mongoose schema and is never saved to the DB.
+    const sanitizeForSave = (r) => {
+      if (!r) return r;
+      const { aiFormData, ...rest } = r;
+      if (!aiFormData || typeof aiFormData !== 'object') return r;
+      const cleanAiFormData = Object.fromEntries(
+        Object.entries(aiFormData).filter(
+          ([, v]) => !(typeof v === 'string' && v.startsWith('data:image/'))
+        )
+      );
+      return { ...rest, aiFormData: cleanAiFormData };
+    };
+
+    const payload = sanitizeForSave(resumeToSave);
+
     setSaving(true);
     setAutoSaveStatus('saving');
     try {
       if (id) {
-        const response = await resumeAPI.update(id, resumeToSave);
+        const response = await resumeAPI.update(id, payload);
         if (response.data) {
           // Merge: prefer local templateOverrides to avoid losing AI editor HTML
           setResume(prev => ({
@@ -205,7 +230,7 @@ function ResumeBuilder() {
         }
       } else {
         // Bug 4.8: new resume — create on first explicit save
-        const response = await resumeAPI.create(resumeToSave);
+        const response = await resumeAPI.create(payload);
         if (response.data && response.data._id) {
           navigate(`/builder/${response.data._id}`, { replace: true });
           setResume(prev => ({
@@ -273,7 +298,10 @@ function ResumeBuilder() {
   const handleExportPDF = async () => {
     if (!id) { showToast('Please save the resume first.', 'error'); return; }
     try {
-      const response = await exportAPI.pdf(id);
+      // Pass the pre-rendered HTML (already has overrides + deleted sections applied)
+      // so the backend doesn't need to re-render and the PDF matches the preview exactly.
+      const preRenderedHtml = latestRenderedHTMLRef.current || '';
+      const response = await exportAPI.pdf(id, preRenderedHtml);
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
@@ -324,6 +352,14 @@ function ResumeBuilder() {
       flat[`education__institution__${i}`] = edu.institution || edu.school || '';
       flat[`education__degree__${i}`] = edu.degree || '';
     });
+
+    // If the user is editing via the AI template editor, the up-to-date content
+    // lives in `resume.aiFormData`. Merge it in so ATS scoring reflects what the
+    // user is actually editing (instead of staying stuck at a low score).
+    if (resume.aiFormData && typeof resume.aiFormData === 'object') {
+      Object.assign(flat, resume.aiFormData);
+    }
+
     return flat;
   }, [resume]);
 
@@ -409,7 +445,14 @@ function ResumeBuilder() {
       // Bug 3.1 fixed — AI Editor no longer embeds the "Structured" sub-mode that
       // duplicated all content sections. It now renders only the AI form editor.
       case 'ai-editor':
-        return <TemplateDrivenEditor resume={resume} onChangeResume={updateResume} aiPreviewMode={aiPreviewMode} />;
+        return (
+          <TemplateDrivenEditor
+            resume={resume}
+            onChangeResume={updateResume}
+            aiPreviewMode={aiPreviewMode}
+            focusAiSectionSelector={focusAiSectionSelector}
+          />
+        );
       case 'customize':
         return <TemplateCustomizer resume={resume} onChange={updateResume} />;
       case 'target-job':
@@ -585,21 +628,35 @@ function ResumeBuilder() {
                           className={`group relative rounded-lg border-2 p-3 text-left transition-all ${
                             isCurrent
                               ? 'border-blue-500 bg-blue-50'
-                              : 'border-gray-200 hover:border-purple-400 hover:shadow-md'
+                              : (t.category === 'saarthix-specials'
+                                  ? 'border-orange-400 hover:border-orange-300 hover:shadow-md'
+                                  : 'border-gray-200 hover:border-purple-400 hover:shadow-md')
                           }`}
+                          style={(!isCurrent && t.category === 'saarthix-specials')
+                            ? { boxShadow: '0 0 0 2px rgba(251,146,60,0.25), 0 10px 25px -14px rgba(249,115,22,0.55)' }
+                            : undefined}
                         >
-                          {/* Preview thumbnail */}
-                          {t.previewImage || t.thumbnailImage ? (
-                            <img
-                              src={t.previewImage || t.thumbnailImage}
-                              alt={t.name}
-                              className="w-full aspect-[3/4] object-cover rounded mb-2 border"
-                            />
-                          ) : (
-                            <div className="w-full aspect-[3/4] rounded mb-2 border bg-gray-100 flex items-center justify-center text-gray-300 text-3xl">
-                              📄
-                            </div>
-                          )}
+                          {/* Live HTML preview (same style as Templates page) */}
+                          <div className="bg-gray-50 w-full aspect-[3/4] rounded mb-2 border overflow-hidden">
+                            {t.templateConfig?.html ? (
+                              <iframe
+                                title={`${t.name} preview`}
+                                srcDoc={buildTemplatePreviewSrcDoc(t.templateConfig.html)}
+                                className="w-full h-full border-0 pointer-events-none"
+                                style={{
+                                  transform: 'scale(0.42)',
+                                  transformOrigin: 'top left',
+                                  width: '238%',
+                                  height: '238%',
+                                }}
+                                sandbox="allow-same-origin allow-scripts"
+                              />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-gray-300 text-3xl">
+                                📄
+                              </div>
+                            )}
+                          </div>
                           <p className="text-xs font-semibold text-gray-700 truncate">{t.name}</p>
                           {t.category && (
                             <p className="text-[10px] text-gray-400 capitalize mt-0.5">{t.category.replace(/-/g, ' ')}</p>
@@ -632,7 +689,20 @@ function ResumeBuilder() {
 
         {/* ── Right: Preview ── */}
         <div className="lg:col-span-2 flex flex-col" style={{ minHeight: 0, overflow: 'hidden' }}>
-          <ResumePreview resume={resume} aiPreviewMode={aiPreviewMode} setAiPreviewMode={setAiPreviewMode} />
+          <ResumePreview
+            resume={resume}
+            aiPreviewMode={aiPreviewMode}
+            setAiPreviewMode={setAiPreviewMode}
+            onRenderedHTMLChange={(html) => { latestRenderedHTMLRef.current = html; }}
+            onSectionClick={(info) => {
+              setOpenSection('ai-editor');
+              setFocusAiSectionSelector({
+                title: info?.title || null,
+                selector: info?.selector || null,
+                nonce: Date.now(),
+              });
+            }}
+          />
         </div>
       </div>
 

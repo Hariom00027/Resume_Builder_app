@@ -4,22 +4,37 @@ import AccordionSection from './AccordionSection';
 import { Field } from './Field';
 import DatePicker from './DatePicker';
 import AIBulletGeneratorModal from './AIBulletGeneratorModal';
+import { applyTemplateOverrides, SECTION_DELETED_SENTINEL } from '../../utils/templateSectionScanner';
 
 // Bugs fixed:
 //  2.2 — formData is now pre-filled from existing resume data (personalInfo, summary, etc.)
 //         instead of always being initialized to empty strings.
 //         formData is also NOT reset when template re-analyzes; only new keys are added.
 
-// Cache to persist scan state across component unmounts
+// Cache to persist scan state across component unmounts.
+// IMPORTANT: this is in-memory only; we hard-clear it on full page load.
 const scanCache = new Map();
 
+// Start fresh on reload (prevents "old template data" leaking across sessions).
+if (typeof window !== 'undefined' && !window.__sxScanCacheCleared) {
+  scanCache.clear();
+  window.__sxScanCacheCleared = true;
+}
 
-export default function AITemplateEditor({ resume, onChangeResume, aiPreviewMode = 'print' }) {
+/** Unique accordion pane id (multiple schema sections may share the same CSS selector, e.g. `.left`). */
+function editorPaneId(section, idx) {
+  const t = (section?.title || '').trim();
+  return t ? `pane:${t}` : `pane:__${idx}__${(section?.selector || '').replace(/\s/g, '')}`;
+}
+
+export default function AITemplateEditor({ resume, onChangeResume, aiPreviewMode = 'print', focusSectionSelector }) {
   const [template, setTemplate] = useState(null);
   const [analysis, setAnalysis] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [openSection, setOpenSection] = useState(null);
+  const sectionRefs = useRef({});
+  const lastHandledFocusNonce = useRef(null);
   const [formData, setFormData] = useState({});
   const [hasScanned, setHasScanned] = useState(false);
   const [applying, setApplying] = useState(false);
@@ -142,7 +157,7 @@ export default function AITemplateEditor({ resume, onChangeResume, aiPreviewMode
       
       // Open first section by default
       if (resp.data.sections?.length > 0) {
-        setOpenSection(resp.data.sections[0].selector);
+        setOpenSection(null);
       }
       setHasScanned(true);
     } catch (e) {
@@ -172,6 +187,79 @@ export default function AITemplateEditor({ resume, onChangeResume, aiPreviewMode
     }
   }, [template, resume]);
 
+  // Preview click → open matching accordion and scroll the left editor panel.
+  useEffect(() => {
+    const raw = focusSectionSelector;
+    if (raw == null || raw === '') return;
+    if (!analysis?.sections?.length) return;
+
+    const req =
+      typeof raw === 'object' && raw !== null && !Array.isArray(raw)
+        ? raw
+        : { title: null, selector: String(raw), nonce: undefined };
+    const nonce = req.nonce;
+    const norm = (s) => (s || '').toLowerCase().trim();
+    const wantedTitle = norm(req.title);
+    const wantedSel = (req.selector || '').trim();
+
+    let match = null;
+    let matchIdx = -1;
+    if (wantedTitle) {
+      analysis.sections.forEach((s, i) => {
+        if (match) return;
+        if (norm(s.title) === wantedTitle) {
+          match = s;
+          matchIdx = i;
+        }
+      });
+    }
+    if (!match && wantedTitle) {
+      analysis.sections.forEach((s, i) => {
+        if (match) return;
+        const st = norm(s.title);
+        if (st.includes(wantedTitle) || wantedTitle.includes(st)) {
+          match = s;
+          matchIdx = i;
+        }
+      });
+    }
+    if (!match && wantedSel) {
+      const idx = analysis.sections.findIndex((s) => s.selector === wantedSel);
+      if (idx >= 0) {
+        match = analysis.sections[idx];
+        matchIdx = idx;
+      }
+    }
+    if (!match && wantedTitle) {
+      const words = wantedTitle
+        .replace(/[()]/g, ' ')
+        .split(/\s+/)
+        .filter((w) => w.length > 2);
+      analysis.sections.forEach((s, i) => {
+        if (match) return;
+        const st = norm(s.title);
+        const hit =
+          (words.length >= 2 && words.every((w) => st.includes(w))) ||
+          (words.length === 1 && words[0].length > 5 && st.includes(words[0]));
+        if (hit) {
+          match = s;
+          matchIdx = i;
+        }
+      });
+    }
+    if (!match) return;
+
+    if (nonce != null && lastHandledFocusNonce.current === nonce) return;
+    if (nonce != null) lastHandledFocusNonce.current = nonce;
+
+    const paneId = editorPaneId(match, matchIdx);
+    setOpenSection(paneId);
+    setTimeout(() => {
+      const el = sectionRefs.current[paneId];
+      if (el?.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 120);
+  }, [focusSectionSelector, analysis]);
+
   useEffect(() => {
     const loadTemplate = async () => {
       if (!resume?.templateId) return;
@@ -188,25 +276,27 @@ export default function AITemplateEditor({ resume, onChangeResume, aiPreviewMode
         const templateChanged = templateIdRef.current !== resume.templateId;
         templateIdRef.current = resume.templateId;
         
+        const shouldRestoreCachedFormData =
+          !!resume?.aiFormData && typeof resume.aiFormData === 'object' && Object.keys(resume.aiFormData).length > 0;
+
         if (templateChanged) {
-          // Restore from cache if available
+          // Restore analysis from cache if available (fast),
+          // but only restore formData when this resume actually has aiFormData.
           if (cachedData) {
             setAnalysis(cachedData.analysis);
-            setFormData(cachedData.formData);
             setHasScanned(true);
-            if (cachedData.analysis?.sections?.length > 0) {
-              setOpenSection(cachedData.analysis.sections[0].selector);
-            }
+            setOpenSection(null);
+            setFormData(shouldRestoreCachedFormData ? cachedData.formData : {});
           } else {
             setHasScanned(false);
             setAnalysis(null);
             setFormData({});
           }
         } else if (cachedData) {
-          // Same template, restore from cache
+          // Same template: keep analysis cached, but don't leak prior resume's form data into a new resume.
           setAnalysis(cachedData.analysis);
-          setFormData(cachedData.formData);
           setHasScanned(true);
+          if (shouldRestoreCachedFormData) setFormData(cachedData.formData);
         }
       } catch (e) {
         console.error('Failed to load template', e);
@@ -214,7 +304,7 @@ export default function AITemplateEditor({ resume, onChangeResume, aiPreviewMode
       }
     };
     loadTemplate();
-  }, [resume?.templateId]);
+  }, [resume?.templateId, resume?.aiFormData]);
 
   // Auto-scan on first load when template is ready (only if not already scanned)
   useEffect(() => {
@@ -247,7 +337,7 @@ export default function AITemplateEditor({ resume, onChangeResume, aiPreviewMode
   // Debounce ref to avoid overlapping API calls
   const debounceTimerRef = useRef(null);
 
-  const applyChangesToResume = useCallback(async (mode = aiPreviewMode, dataToUse = formData) => {
+  const applyChangesToResume = useCallback(async (mode = aiPreviewMode, dataToUse = formData, targetSectionSelector = null) => {
     if (!template?.templateConfig?.html) {
       console.warn('[AITemplateEditor] Cannot apply changes: template HTML not available');
       return;
@@ -266,7 +356,10 @@ export default function AITemplateEditor({ resume, onChangeResume, aiPreviewMode
     
     setApplying(true);
     try {
-      console.log('[AITemplateEditor] Applying changes to resume, mode:', mode, 'data keys:', Object.keys(dataToUse).length);
+      // For live editing, avoid "print" mode (it may strip empty/unchanged sections).
+      // Only use "print" when exporting/printing.
+      const requestMode = mode === 'print' ? 'print' : 'edit';
+      console.log('[AITemplateEditor] Applying changes to resume, mode:', requestMode, 'data keys:', Object.keys(dataToUse).length);
       
       // Separate images from formData to reduce payload size
       // Images will be injected directly, so we don't need to send them to AI
@@ -289,11 +382,16 @@ export default function AITemplateEditor({ resume, onChangeResume, aiPreviewMode
       
       console.log(`[AITemplateEditor] Separated ${imageKeys.length} image(s) from payload. Sending ${Object.keys(formDataWithoutImages).length} text fields.`);
       
+      // Preserve previous edits by applying per-section overrides to the base HTML first.
+      const currentOverrides = { ...(resume?.templateOverrides || {}) };
+      delete currentOverrides.__fullTemplate__;
+      const baseHtml = applyTemplateOverrides(template.templateConfig.html, currentOverrides);
+
       const resp = await aiAPI.injectTemplateData({
-        templateHtml: template.templateConfig.html,
+        templateHtml: baseHtml,
         formData: formDataWithoutImages,
         images: images, // Send images separately
-        mode
+        mode: requestMode
       });
       
       if (!resp?.data?.html) {
@@ -303,10 +401,48 @@ export default function AITemplateEditor({ resume, onChangeResume, aiPreviewMode
       const updatedHtml = resp.data.html;
       console.log('[AITemplateEditor] Successfully received updated HTML, length:', updatedHtml.length);
 
-      // Update resume with new HTML - ONLY after AI processing completes
-      // This ensures data goes through AI wall before being applied
+      const extractSectionInnerHtml = (fullHtml, selector, fallbackTitle) => {
+        if (!selector && !fallbackTitle) return null;
+        try {
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(fullHtml, 'text/html');
+          let el = selector ? doc.querySelector(selector) : null;
+
+          // Fallback for SaarthiX selectors that rely on type-position pseudo selectors
+          // and may drift when non-section sibling divs exist.
+          if (!el && selector) {
+            const nthMatch = selector.match(/^\.right \.section:nth-of-type\((\d+)\)$/);
+            if (nthMatch) {
+              const idx = Math.max(0, Number(nthMatch[1]) - 1);
+              el = doc.querySelectorAll('.right .section')[idx] || null;
+            }
+            if (!el && /^\.right \.section:first-of-type$/.test(selector)) {
+              el = doc.querySelectorAll('.right .section')[0] || null;
+            }
+            if (!el && /^\.right \.section:last-of-type$/.test(selector)) {
+              const all = doc.querySelectorAll('.right .section');
+              el = all[all.length - 1] || null;
+            }
+          }
+
+          // Title-based fallback for robust section extraction from AI output.
+          if (!el && fallbackTitle) {
+            const norm = String(fallbackTitle).trim().toLowerCase();
+            el = Array.from(doc.querySelectorAll('.right .section')).find((sec) => {
+              const h = sec.querySelector('h2,h3');
+              return h && String(h.textContent || '').trim().toLowerCase() === norm;
+            }) || null;
+          }
+
+          return el ? (el.innerHTML || '') : null;
+        } catch {
+          return null;
+        }
+      };
+
+      // Update resume with per-section overrides ONLY after AI processing completes
       onChangeResume(prevResume => {
-        let updated = { ...prevResume };
+        const updated = { ...prevResume };
         
         // Store formData in resume for persistence (but don't trigger template updates)
         updated.aiFormData = dataToUse;
@@ -320,14 +456,40 @@ export default function AITemplateEditor({ resume, onChangeResume, aiPreviewMode
           };
         }
         
-        // Update template HTML - this is what actually updates the visible template
-        // This is the ONLY place where templateOverrides should be updated
-        updated.templateOverrides = {
-          ...(updated.templateOverrides || {}),
-          '__fullTemplate__': updatedHtml
-        };
-        
-        console.log('[AITemplateEditor] Resume updated with new template HTML after AI processing');
+        // Build a set of selectors that belong to image-only sections.
+        // These must never be stored in templateOverrides — images are injected
+        // directly by ResumePreview's bindImportedTemplate so they don't get
+        // clobbered by applyTemplateOverrides.
+        const imageSectionSelectors = new Set(
+          (analysis?.sections || [])
+            .filter(s => s.type === 'image' || /image|photo|avatar/i.test(s.title || ''))
+            .map(s => s.selector)
+            .filter(Boolean)
+        );
+
+        // Update ONLY the edited section(s). Unchanged sections remain as-is.
+        const nextOverrides = { ...(updated.templateOverrides || {}) };
+        delete nextOverrides.__fullTemplate__;
+
+        if (targetSectionSelector) {
+          // Skip image sections
+          if (!imageSectionSelectors.has(targetSectionSelector)) {
+            const sec = (analysis?.sections || []).find((s) => s.selector === targetSectionSelector);
+            const sectionHtml = extractSectionInnerHtml(updatedHtml, targetSectionSelector, sec?.title);
+            if (typeof sectionHtml === 'string') nextOverrides[targetSectionSelector] = sectionHtml;
+          }
+        } else {
+          (analysis?.sections || []).forEach((sec) => {
+            const sel = sec?.selector;
+            if (!sel || imageSectionSelectors.has(sel)) return; // skip image sections
+            const sectionHtml = extractSectionInnerHtml(updatedHtml, sel, sec?.title);
+            if (typeof sectionHtml === 'string') nextOverrides[sel] = sectionHtml;
+          });
+        }
+
+        updated.templateOverrides = nextOverrides;
+
+        console.log('[AITemplateEditor] Resume updated with per-section overrides after AI processing');
         return updated;
       });
       
@@ -419,6 +581,14 @@ export default function AITemplateEditor({ resume, onChangeResume, aiPreviewMode
   // Don't auto-apply when preview mode changes - user must manually apply sections
   // This prevents data from being applied before sections are complete
 
+  /**
+   * Returns true when the value is an image (base64 data URI or field name implies image).
+   * Image fields bypass the AI injection pipeline entirely.
+   */
+  const isImageField = (fieldName, value) =>
+    (typeof value === 'string' && value.startsWith('data:image/')) ||
+    (fieldName && /image|photo|avatar/i.test(fieldName));
+
   const updateField = useCallback((sectionSelector, fieldName, value, entryIndex = null) => {
     const key = entryIndex !== null 
       ? `${sectionSelector}__${fieldName}__${entryIndex}`
@@ -429,14 +599,131 @@ export default function AITemplateEditor({ resume, onChangeResume, aiPreviewMode
       if (templateIdRef.current && analysis) {
         scanCache.set(templateIdRef.current, { analysis, formData: updated });
       }
-      
-      // Only store formData - DO NOT sync to resume object yet
-      // Resume will be updated only after AI processing completes
-      // This prevents instant template updates
-      
       return updated;
     });
-  }, [analysis]);
+
+    // ── Image fast-path: bypass AI and apply directly to the preview ──────────
+    if (isImageField(fieldName, value)) {
+      // Store in personalInfo.profileImage (picked up by ResumePreview's bindImportedTemplate).
+      // Do NOT send through AI or store in templateOverrides — ResumePreview handles
+      // photo rendering separately so it never conflicts with section overrides.
+      onChangeResume(r => ({
+        ...r,
+        personalInfo: { ...(r.personalInfo || {}), profileImage: value || '' },
+      }));
+      return true; // signals caller: image was handled, skip checkAndApplySection
+    }
+
+    // ── Tagline fast-path: bypass AI to avoid the AI accidentally reformatting
+    // the name elements that share the same .header section container. ─────────
+    if (fieldName === 'tagline') {
+      onChangeResume(r => ({
+        ...r,
+        aiFormData: { ...(r.aiFormData || {}), [key]: value || '' },
+      }));
+      return true; // direct injection handled by ResumePreview after overrides
+    }
+
+    // ── Key Recognitions fast-path: its section selector is ".left" (the entire
+    // left column). Letting AI replace the whole .left innerHTML would clobber
+    // the photo, bio, and accomplishments sub-sections. Store in aiFormData and
+    // let ResumePreview inject the list items directly. ───────────────────────
+    if (fieldName === 'recognitions' && sectionSelector === '.left') {
+      onChangeResume(r => ({
+        ...r,
+        aiFormData: { ...(r.aiFormData || {}), [key]: value || '' },
+      }));
+      return true;
+    }
+
+    // ── SaarthiX Special 2 Contact fast-path ────────────────────────────────
+    // SaarthiX Special 2's preview hard-renders `.contact` from
+    // `resume.personalInfo`. The AI editor may store contact updates as
+    // templateOverrides, but the preview can still miss phone/linkedin/location.
+    // Push these fields directly into `resume.personalInfo` so the preview
+    // always shows the latest values.
+    if (
+      resume?.templateId === 'saarthix-special-2' &&
+      sectionSelector === '.contact' &&
+      ['fullName', 'email', 'phone', 'linkedin', 'location'].includes(fieldName)
+    ) {
+      onChangeResume(r => ({
+        ...r,
+        personalInfo: { ...(r.personalInfo || {}), [fieldName]: value || '' },
+      }));
+      return true;
+    }
+
+    // ── Experience fast-path: the AI tends to append user entries on top of
+    // the template's default Pied Piper placeholder, producing duplicate blocks.
+    // Map form fields directly to resume.experience[entryIndex] and delete any
+    // stale AI override so bindImportedTemplate renders cleanly. ─────────────
+    const sectionMeta = analysis?.sections?.find(s => s.selector === sectionSelector);
+    if (sectionMeta?.type === 'experience') {
+      const EXP_FIELDS = ['role', 'company', 'date', 'startDate', 'endDate', 'responsibilities'];
+      if (EXP_FIELDS.includes(fieldName)) {
+        const idx = entryIndex ?? 0;
+        onChangeResume(r => {
+          const experience = r.experience ? [...r.experience] : [];
+          while (experience.length <= idx) {
+            experience.push({ role: '', company: '', startDate: '', endDate: '', current: false, achievements: [], description: '' });
+          }
+          const entry = { ...experience[idx] };
+          if (fieldName === 'role')           entry.role = value || '';
+          else if (fieldName === 'company')   entry.company = value || '';
+          else if (fieldName === 'startDate') entry.startDate = value || '';
+          else if (fieldName === 'endDate')   entry.endDate = value || '';
+          else if (fieldName === 'date') {
+            const parts = String(value || '').split(/\s*[-–]\s*/);
+            entry.startDate = parts[0]?.trim() || '';
+            entry.endDate   = parts[1]?.trim() || '';
+          }
+          else if (fieldName === 'responsibilities') {
+            entry.achievements = typeof value === 'string'
+              ? value.split('\n').map(s => s.trim()).filter(Boolean)
+              : (Array.isArray(value) ? value : []);
+          }
+          experience[idx] = entry;
+          // Remove stale AI override so applyTemplateOverrides won't re-render
+          // the old HTML (which contained the duplicate template defaults).
+          const nextOverrides = { ...(r.templateOverrides || {}) };
+          delete nextOverrides[sectionSelector];
+          return { ...r, experience, templateOverrides: nextOverrides };
+        });
+        return true;
+      }
+    }
+
+    // ── Skills fast-path: keep Skills preview in sync from form values directly.
+    // AI output for this section can be inconsistent; map the two schema fields
+    // into resume arrays and clear stale section override so preview uses data.
+    if (fieldName === 'technicalSkills' || fieldName === 'nonTechnicalSkills') {
+      const toList = (v) =>
+        String(v || '')
+          .split(/[\n,]/)
+          .map((s) => s.trim())
+          .filter(Boolean);
+      onChangeResume((r) => {
+        const nextAi = { ...(r.aiFormData || {}), [key]: value || '' };
+        const tech = toList(nextAi[`${sectionSelector}__technicalSkills`]);
+        const nonTech = toList(nextAi[`${sectionSelector}__nonTechnicalSkills`]);
+        const nextOverrides = { ...(r.templateOverrides || {}) };
+        // Remove stale AI section HTML for skills so preview always uses latest data.
+        delete nextOverrides[sectionSelector];
+        delete nextOverrides['.right .section:nth-of-type(2)'];
+        return {
+          ...r,
+          aiFormData: nextAi,
+          skills: tech,
+          hobbies: nonTech,
+          templateOverrides: nextOverrides,
+        };
+      });
+      return true;
+    }
+
+    return false;
+  }, [analysis, onChangeResume]);
 
   const checkAndApplySection = useCallback((sectionSelector, entryIndex = null) => {
     const section = analysis?.sections?.find(s => s.selector === sectionSelector);
@@ -445,24 +732,24 @@ export default function AITemplateEditor({ resume, onChangeResume, aiPreviewMode
     // Use setTimeout to ensure we get the latest formData after state update
     setTimeout(() => {
       setFormData(currentFormData => {
-        // Get required fields (or all fields if none are marked as required)
-        const requiredFields = section.fields.filter(f => f.required !== false);
-        const fieldsToCheck = requiredFields.length > 0 ? requiredFields : section.fields;
+        // Consider all fields for the "at least one filled" check
+        const fieldsToCheck = section.fields || [];
 
-        // Check if ALL required fields in this section/entry are filled
-        const allFieldsFilled = fieldsToCheck.every(f => {
+        // Trigger AI as soon as ANY field in the section/entry has a value.
+        // Waiting for ALL fields caused sections like Experience (5+ fields)
+        // and Skills (2 fields) to never update while partially filled.
+        const anyFieldFilled = fieldsToCheck.some(f => {
            const checkKey = entryIndex !== null ? `${sectionSelector}__${f.name}__${entryIndex}` : `${sectionSelector}__${f.name}`;
            const value = currentFormData[checkKey];
            return value !== undefined && value !== null && value.toString().trim() !== '';
         });
         
-        // Only apply if ALL required fields are filled
-        if (allFieldsFilled) {
+        if (anyFieldFilled) {
            if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
            // Debounce to avoid too many API calls
            debounceTimerRef.current = setTimeout(() => {
              console.log(`[AITemplateEditor] Section ${sectionSelector}${entryIndex !== null ? ` entry ${entryIndex}` : ''} is complete. Applying through AI after blur...`);
-             applyChangesToResume(aiPreviewMode, currentFormData);
+             applyChangesToResume(aiPreviewMode, currentFormData, sectionSelector);
            }, 300);
         }
         
@@ -499,7 +786,7 @@ export default function AITemplateEditor({ resume, onChangeResume, aiPreviewMode
     onChangeResume(r => ({ ...r, aiFormData: updatedFormData }));
     
     // Auto-apply the deletion
-    applyChangesToResume(aiPreviewMode, updatedFormData);
+    applyChangesToResume(aiPreviewMode, updatedFormData, sectionSelector);
   }, [analysis, formData, onChangeResume, aiPreviewMode, applyChangesToResume]);
 
   const duplicateSection = useCallback((sectionSelector) => {
@@ -565,18 +852,113 @@ export default function AITemplateEditor({ resume, onChangeResume, aiPreviewMode
 
   const deleteSection = useCallback((sectionSelector) => {
     if (!window.confirm('Are you sure you want to delete this section?')) return;
+
     const updatedFormData = { ...formData };
     const section = analysis.sections.find(s => s.selector === sectionSelector);
-    section?.fields?.forEach(field => {
+
+    // Clear all keyed form data for every field of this section (including array entries)
+    const prefix = `${sectionSelector}__`;
+    Object.keys(updatedFormData).forEach((key) => {
+      if (key.startsWith(prefix)) delete updatedFormData[key];
+    });
+    // Also clear any non-indexed fields explicitly listed in the schema
+    section?.fields?.forEach((field) => {
       delete updatedFormData[`${sectionSelector}__${field.name}`];
     });
+
     setFormData(updatedFormData);
-    onChangeResume(r => ({ ...r, aiFormData: updatedFormData }));
-    setAnalysis(prev => ({
+
+    // Remove the section from the editor accordion
+    setAnalysis((prev) => ({
       ...prev,
-      sections: prev.sections.filter(s => s.selector !== sectionSelector)
+      sections: prev.sections.filter((s) => s.selector !== sectionSelector),
+    }));
+
+    // Mark the section as deleted in templateOverrides so the preview hides it
+    onChangeResume((r) => ({
+      ...r,
+      aiFormData: updatedFormData,
+      templateOverrides: {
+        ...(r.templateOverrides || {}),
+        [sectionSelector]: SECTION_DELETED_SENTINEL,
+      },
     }));
   }, [analysis, formData, onChangeResume]);
+
+  const importTemplateDataForSection = useCallback((section) => {
+    if (!template?.templateConfig?.html || !section?.selector || !section?.fields?.length) return;
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(template.templateConfig.html, 'text/html');
+      const sectionNodes = Array.from(doc.querySelectorAll(section.selector));
+      if (sectionNodes.length === 0) return;
+
+      const stripLabelPrefix = (text) => {
+        const t = String(text || '').replace(/\s+/g, ' ').trim();
+        // Remove common "Label:" prefixes used in templates
+        return t.replace(/^(company name|project|role|key skill used|achievements|college|year|gpa|percentage\s*\/\s*gpa|electives\s*\/\s*subjects|graduation)\s*:\s*/i, '');
+      };
+
+      const splitYearRange = (text) => {
+        const t = stripLabelPrefix(text);
+        const parts = t.split(/[-–]/).map(s => s.trim()).filter(Boolean);
+        if (parts.length >= 2) return { start: parts[0], end: parts.slice(1).join(' – ') };
+        return { start: t, end: '' };
+      };
+
+      // For array sections, we derive entry count from max matched nodes across fields.
+      const isArraySection = !!section.isArray || ['experience', 'education', 'projects', 'certifications', 'awards'].includes(section.type);
+      const fieldMatches = section.fields.map((f) => {
+        const nodes = [];
+        for (const secNode of sectionNodes) {
+          try {
+            nodes.push(...Array.from(secNode.querySelectorAll(f.selector)));
+          } catch {
+            // ignore invalid selector
+          }
+        }
+        return { field: f, nodes };
+      });
+      const entryCount = isArraySection
+        ? Math.max(1, ...fieldMatches.map(m => m.nodes.length || 0))
+        : 1;
+
+      const next = { ...formData };
+
+      for (const { field, nodes } of fieldMatches) {
+        for (let i = 0; i < entryCount; i++) {
+          const node = nodes[i] || nodes[0];
+          const raw = node ? (node.textContent || '') : '';
+          if (!raw) continue;
+
+          if (field.type === 'date' || field.name === 'startDate' || field.name === 'endDate') {
+            const { start, end } = splitYearRange(raw);
+            if (isArraySection) {
+              if (start) next[`${section.selector}__startDate__${i}`] = start;
+              if (end) next[`${section.selector}__endDate__${i}`] = end;
+            } else {
+              if (start) next[`${section.selector}__startDate`] = start;
+              if (end) next[`${section.selector}__endDate`] = end;
+            }
+            continue;
+          }
+
+          const value = stripLabelPrefix(raw);
+          const key = isArraySection
+            ? `${section.selector}__${field.name}__${i}`
+            : `${section.selector}__${field.name}`;
+          next[key] = value;
+        }
+      }
+
+      setFormData(next);
+      if (templateIdRef.current && analysis) {
+        scanCache.set(templateIdRef.current, { analysis, formData: next });
+      }
+    } catch (e) {
+      console.error('Failed to import template data for section', section?.selector, e);
+    }
+  }, [template, formData, analysis]);
 
   if (loading) {
     return (
@@ -660,39 +1042,50 @@ export default function AITemplateEditor({ resume, onChangeResume, aiPreviewMode
       </div>
 
       {analysis.sections.map((section, idx) => {
-        const isOpen = openSection === section.selector || (openSection === null && idx === 0);
-        
+        const paneId = editorPaneId(section, idx);
+        const isOpen = openSection === paneId || (openSection === null && idx === 0);
+
         return (
-          <AccordionSection
-            key={section.selector}
-            title={section.title}
-            isOpen={isOpen}
-            onToggle={() => setOpenSection(isOpen ? null : section.selector)}
-            right={
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    duplicateSection(section.selector);
-                  }}
-                  className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors"
-                  title="Add another entry to this section"
-                >
-                  📋
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    deleteSection(section.selector);
-                  }}
-                  className="text-xs px-2 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200 transition-colors"
-                  title="Delete section"
-                >
-                  🗑️
-                </button>
-              </div>
-            }
-          >
+          <div key={paneId} ref={(el) => { if (el) sectionRefs.current[paneId] = el; }}>
+            <AccordionSection
+              title={section.title}
+              isOpen={isOpen}
+              onToggle={() => setOpenSection(isOpen ? null : paneId)}
+              right={
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      importTemplateDataForSection(section);
+                    }}
+                    className="text-xs px-2 py-1 bg-emerald-100 text-emerald-700 rounded hover:bg-emerald-200 transition-colors"
+                    title="Import template sample data into this section"
+                  >
+                    📥
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      duplicateSection(section.selector);
+                    }}
+                    className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors"
+                    title="Add another entry to this section"
+                  >
+                    📋
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteSection(section.selector);
+                    }}
+                    className="text-xs px-2 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200 transition-colors"
+                    title="Delete section"
+                  >
+                    🗑️
+                  </button>
+                </div>
+              }
+            >
             {section.description && (
               <p className="text-xs text-gray-500 mb-3">{section.description}</p>
             )}
@@ -745,9 +1138,23 @@ export default function AITemplateEditor({ resume, onChangeResume, aiPreviewMode
                     }
                   });
                   
-                  // If no entries exist at all, show index 0 (first entry)
+                  // If no entries exist at all, pre-open defaults.
+                  // For Education: show 3 slots by default (can be deleted by user).
+                  // For others: show index 0 only.
                   if (entriesWithData.size === 0 && !hasNonIndexed) {
-                    entriesWithData.add(0);
+                    const title = (section.title || '').toLowerCase();
+                    const isEducation =
+                      section.type === 'education' ||
+                      title.includes('education') ||
+                      title.includes('qualification');
+
+                    if (isEducation) {
+                      entriesWithData.add(0);
+                      entriesWithData.add(1);
+                      entriesWithData.add(2);
+                    } else {
+                      entriesWithData.add(0);
+                    }
                   }
                   
                   // Render indexed entries
@@ -793,14 +1200,16 @@ export default function AITemplateEditor({ resume, onChangeResume, aiPreviewMode
                                 ...field,
                                 name: 'startDate',
                                 label: 'Start Date',
-                                placeholder: 'e.g., Jan 2023',
+                                placeholder: 'DD/MM/YY',
+                                type: 'date',
                                 originalFieldName: field.name
                               });
                               processedFields.push({
                                 ...field,
                                 name: 'endDate',
                                 label: 'End Date',
-                                placeholder: 'e.g., Dec 2024',
+                                placeholder: 'DD/MM/YY',
+                                type: 'date',
                                 originalFieldName: field.name
                               });
                             } else {
@@ -890,24 +1299,55 @@ export default function AITemplateEditor({ resume, onChangeResume, aiPreviewMode
                                 </button>
                               )}
                               {(field.type === 'date' || field.name === 'startDate' || field.name === 'endDate') ? (
-                                <DatePicker
-                                  value={value}
-                                  onChange={(v) => {
-                                    // If updating a split date field, also clear the original combined field
-                                    if (field.originalFieldName) {
-                                      const originalKey = `${section.selector}__${field.originalFieldName}__${entryIndex}`;
-                                      if (formData[originalKey]) {
-                                        updateField(section.selector, field.originalFieldName, '', entryIndex);
-                                      }
-                                    }
-                                    updateField(section.selector, field.name, v, entryIndex);
-                                  }}
-                                  onBlur={() => {
-                                    // Only apply when user clicks outside (blur) and section is complete
-                                    checkAndApplySection(section.selector, entryIndex);
-                                  }}
-                                  placeholder={field.placeholder || 'DD/MM/YY'}
-                                />
+                                <div>
+                                  <label className="block text-sm font-medium mb-1">
+                                    {field.label}
+                                    {field.required && <span className="text-red-500 ml-1">*</span>}
+                                  </label>
+                                  {field.description && <p className="text-xs text-gray-500 mb-1">{field.description}</p>}
+                                  <div className="flex items-center gap-2">
+                                    <div className="flex-1">
+                                      <DatePicker
+                                        value={value}
+                                        onChange={(v) => {
+                                          // If updating a split date field, also clear the original combined field
+                                          if (field.originalFieldName) {
+                                            const originalKey = `${section.selector}__${field.originalFieldName}__${entryIndex}`;
+                                            if (formData[originalKey]) {
+                                              updateField(section.selector, field.originalFieldName, '', entryIndex);
+                                            }
+                                          }
+                                          updateField(section.selector, field.name, v, entryIndex);
+                                        }}
+                                        onBlur={() => {
+                                          // Only apply when user clicks outside (blur) and section is complete
+                                          checkAndApplySection(section.selector, entryIndex);
+                                        }}
+                                        placeholder={field.placeholder || 'DD/MM/YY'}
+                                      />
+                                    </div>
+
+                                    {field.name === 'endDate' && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (field.originalFieldName) {
+                                            const originalKey = `${section.selector}__${field.originalFieldName}__${entryIndex}`;
+                                            if (formData[originalKey]) {
+                                              updateField(section.selector, field.originalFieldName, '', entryIndex);
+                                            }
+                                          }
+                                          updateField(section.selector, field.name, 'Present', entryIndex);
+                                          checkAndApplySection(section.selector, entryIndex);
+                                        }}
+                                        className="px-3 py-2 text-xs font-semibold rounded border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+                                        title="Set End Date to Present"
+                                      >
+                                        Present
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
                               ) : (
                                 <Field
                                   label={field.label}
@@ -924,7 +1364,11 @@ export default function AITemplateEditor({ resume, onChangeResume, aiPreviewMode
                                     updateField(section.selector, field.name, v, entryIndex);
                                   }}
                                   onBlur={() => {
-                                    // Only apply when user clicks outside (blur) and section is complete
+                                    // Fast-path fields are applied immediately on change; skip AI on blur
+                                    if (field.type === 'image' || field.name === 'tagline' || field.name === 'recognitions') return;
+                                    // Experience is mapped directly to resume.experience — no AI needed
+                                    const secMeta = analysis?.sections?.find(s => s.selector === section.selector);
+                                    if (secMeta?.type === 'experience' || secMeta?.type === 'skills') return;
                                     checkAndApplySection(section.selector, entryIndex);
                                   }}
                                   placeholder={field.placeholder}
@@ -1073,24 +1517,48 @@ export default function AITemplateEditor({ resume, onChangeResume, aiPreviewMode
                                   {field.required && <span className="text-red-500 ml-1">*</span>}
                                 </label>
                                 {field.description && <p className="text-xs text-gray-500 mb-1">{field.description}</p>}
-                                <DatePicker
-                                  value={value}
-                                  onChange={(v) => {
-                                    // If updating a split date field, also clear the original combined field
-                                    if (field.originalFieldName) {
-                                      const originalKey = `${section.selector}__${field.originalFieldName}`;
-                                      if (formData[originalKey]) {
-                                        updateField(section.selector, field.originalFieldName, '');
-                                      }
-                                    }
-                                    updateField(section.selector, field.name, v);
-                                  }}
-                                  onBlur={() => {
-                                    // Only apply when user clicks outside (blur) and section is complete
-                                    checkAndApplySection(section.selector, null);
-                                  }}
-                                  placeholder={field.placeholder || 'DD/MM/YY'}
-                                />
+                                <div className="flex items-center gap-2">
+                                  <div className="flex-1">
+                                    <DatePicker
+                                      value={value}
+                                      onChange={(v) => {
+                                        // If updating a split date field, also clear the original combined field
+                                        if (field.originalFieldName) {
+                                          const originalKey = `${section.selector}__${field.originalFieldName}`;
+                                          if (formData[originalKey]) {
+                                            updateField(section.selector, field.originalFieldName, '');
+                                          }
+                                        }
+                                        updateField(section.selector, field.name, v);
+                                      }}
+                                      onBlur={() => {
+                                        // Only apply when user clicks outside (blur) and section is complete
+                                        checkAndApplySection(section.selector, null);
+                                      }}
+                                      placeholder={field.placeholder || 'DD/MM/YY'}
+                                    />
+                                  </div>
+
+                                  {field.name === 'endDate' && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (field.originalFieldName) {
+                                          const originalKey = `${section.selector}__${field.originalFieldName}`;
+                                          if (formData[originalKey]) {
+                                            updateField(section.selector, field.originalFieldName, '');
+                                          }
+                                        }
+                                        updateField(section.selector, field.name, 'Present');
+                                        checkAndApplySection(section.selector, null);
+                                      }}
+                                      className="px-3 py-2 text-xs font-semibold rounded border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+                                      title="Set End Date to Present"
+                                    >
+                                      Present
+                                    </button>
+                                  )}
+                                </div>
                               </div>
                             ) : (
                               <Field
@@ -1107,8 +1575,11 @@ export default function AITemplateEditor({ resume, onChangeResume, aiPreviewMode
                                   }
                                   updateField(section.selector, field.name, v);
                                 }}
-                                onBlur={() => {
-                                  // Only apply when user clicks outside (blur) and section is complete
+                                  onBlur={() => {
+                                  // Fast-path fields are applied immediately via onChangeResume; skip AI.
+                                  if (field.type === 'image' || field.name === 'tagline' || field.name === 'recognitions') return;
+                                  const secMeta2 = analysis?.sections?.find(s => s.selector === section.selector);
+                                  if (secMeta2?.type === 'experience' || secMeta2?.type === 'skills') return;
                                   checkAndApplySection(section.selector, null);
                                 }}
                                 placeholder={field.placeholder}
@@ -1166,7 +1637,7 @@ export default function AITemplateEditor({ resume, onChangeResume, aiPreviewMode
                     // If not complete, still allow manual apply but warn user
                     if (window.confirm('Section is not complete. Apply anyway? (Data will be processed through AI)')) {
                       console.log(`[AITemplateEditor] Manual apply requested for incomplete section ${section.selector}`);
-                      applyChangesToResume(aiPreviewMode, formData);
+                      applyChangesToResume(aiPreviewMode, formData, section.selector);
                     }
                   }
                 }}
@@ -1176,17 +1647,18 @@ export default function AITemplateEditor({ resume, onChangeResume, aiPreviewMode
                 {applying ? 'Applying through AI...' : '✨ Apply Section via AI'}
               </button>
             </div>
-          </AccordionSection>
+            </AccordionSection>
+          </div>
         );
       })}
       
-      <div className="mt-6 sticky bottom-4 flex justify-end pb-8">
+      <div className="mt-6 sticky bottom-4 w-full flex justify-end pb-6 pr-3">
         <button
-          onClick={applyChangesToResume}
+          onClick={() => applyChangesToResume(aiPreviewMode, formData, null)}
           disabled={applying}
-          className="shadow-lg bg-gradient-to-r from-purple-600 to-indigo-600 font-medium text-white px-6 py-3 rounded-full hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all transform hover:scale-105 active:scale-95 flex items-center gap-2"
+          className="bg-indigo-600 text-white text-xs px-3 py-2 rounded-md shadow hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
         >
-          {applying ? '✨ Applying AI Formatting...' : '✨ Apply AI Formatting to Preview'}
+          {applying ? 'Refreshing...' : 'Refresh preview'}
         </button>
       </div>
 

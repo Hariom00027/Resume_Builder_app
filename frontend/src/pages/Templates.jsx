@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { templateAPI } from '../services/api';
+import { buildTemplatePreviewSrcDoc } from '../utils/templatePreviewDoc';
 
 function Templates() {
   const [templates, setTemplates] = useState([]);
@@ -72,14 +73,22 @@ function Templates() {
           {templates.map((template) => (
             <div
               key={template._id}
-              className="bg-white rounded-lg shadow p-6 hover:shadow-lg transition cursor-pointer"
+              className={`bg-white rounded-lg shadow p-6 hover:shadow-lg transition cursor-pointer border ${
+                template.category === 'saarthix-specials'
+                  ? 'border-orange-400 shadow-orange-200/60 hover:shadow-orange-300/60'
+                  : 'border-transparent'
+              }`}
+              style={template.category === 'saarthix-specials' ? { boxShadow: '0 0 0 2px rgba(251,146,60,0.35), 0 10px 25px -12px rgba(249,115,22,0.55)' } : undefined}
               onClick={() => handleSelectTemplate(template.templateId)}
             >
               <div className="bg-gray-100 h-56 mb-4 rounded overflow-hidden">
                 <iframe
                   title={`${template.name} preview`}
-                  srcDoc={template.templateConfig?.html || '<div style=\"padding:16px;color:#999;\">No preview</div>'}
+                  srcDoc={template.templateConfig?.html
+                    ? buildTemplatePreviewSrcDoc(template.templateConfig.html)
+                    : '<div style="padding:16px;color:#999;">No preview</div>'}
                   className="w-full h-full border-0"
+                  sandbox="allow-same-origin allow-scripts"
                   style={{
                     transform: 'scale(0.4)',
                     transformOrigin: 'top left',

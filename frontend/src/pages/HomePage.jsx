@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { resumeAPI, templateAPI } from '../services/api';
+import { buildTemplatePreviewSrcDoc } from '../utils/templatePreviewDoc';
 
 // ── Data ─────────────────────────────────────────────────────────────────────
 
@@ -163,7 +164,7 @@ function TemplateCarousel() {
               }}
             >
               {/* Glow ring — orange for SaarthiX Specials, indigo for others */}
-              {isCenter && (
+              {(isCenter || template.category === 'saarthix-specials') && (
                 <div className={`absolute -inset-1 rounded-3xl opacity-75 blur-sm animate-pulse ${
                   template.category === 'saarthix-specials'
                     ? 'bg-gradient-to-br from-orange-400 via-amber-400 to-yellow-400'
@@ -178,14 +179,16 @@ function TemplateCarousel() {
                       ? 'border-orange-400/60 shadow-2xl shadow-orange-900/50'
                       : 'border-white/40 shadow-2xl shadow-indigo-900/60')
                   : (template.category === 'saarthix-specials'
-                      ? 'border-orange-500/40 shadow-lg shadow-orange-900/30 hover:border-orange-400/60'
+                      ? 'border-orange-400/70 shadow-lg shadow-orange-900/40 hover:border-orange-300/80'
                       : 'border-white/10 shadow-lg hover:border-white/25')
               }`}>
                 {/* iframe preview */}
                 <div className="bg-white overflow-hidden relative" style={{ height: isCenter ? 380 : 320 }}>
                   <iframe
                     title={`${template.name} preview`}
-                    srcDoc={template.templateConfig?.html || '<div style="padding:24px;color:#aaa;font-family:sans-serif;">No preview</div>'}
+                    srcDoc={template.templateConfig?.html
+                      ? buildTemplatePreviewSrcDoc(template.templateConfig.html)
+                      : '<div style="padding:24px;color:#aaa;font-family:sans-serif;">No preview</div>'}
                     className="border-0 pointer-events-none"
                     style={{
                       width: '794px',
@@ -193,7 +196,7 @@ function TemplateCarousel() {
                       transform: isCenter ? 'scale(0.363)' : 'scale(0.302)',
                       transformOrigin: 'top left',
                     }}
-                    sandbox="allow-same-origin"
+                    sandbox="allow-same-origin allow-scripts"
                   />
                   {/* Hover CTA overlay */}
                   <div className="absolute inset-0 bg-indigo-900/0 group-hover:bg-indigo-900/40 transition-all duration-300 flex items-center justify-center backdrop-blur-0 group-hover:backdrop-blur-[1px]">

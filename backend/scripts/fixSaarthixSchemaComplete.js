@@ -183,10 +183,10 @@ async function fixSaarthixSchemaComplete() {
           ]
         },
         {
-          title: "Profile Section (Right)",
+          title: "My DNA",
           selector: ".right .section:first-of-type",
           type: "summary",
-          description: "Detailed profile section on right",
+          description: "My DNA – core strengths and competency highlights (right panel)",
           isArray: false,
           fields: [
             {

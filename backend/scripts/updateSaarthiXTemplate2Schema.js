@@ -100,11 +100,11 @@ async function run() {
 
   sections.splice(skillsIdx, 1, technicalSection, nonTechnicalSection);
 
-  template.templateSchema = {
-    ...schema,
-    sections
-  };
-  template.markModified('templateSchema');
+  // Important: update the nested `sections` array in-place.
+  // Re-assigning `template.templateSchema` can fail to persist changes
+  // for this nested Mongoose subdocument.
+  template.templateSchema.sections = sections;
+  template.markModified('templateSchema.sections');
 
   await template.save();
   console.log('✅ SaarthiX Special 2 template schema migrated successfully');

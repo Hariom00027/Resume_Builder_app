@@ -961,8 +961,31 @@ function ResumePreview({ resume, refreshTrigger, aiPreviewMode, setAiPreviewMode
             if (data.linkedin) parts.push(`LinkedIn: ${data.linkedin.replace(/^https?:\/\//, '')}`);
             if (data.location) parts.push(data.location);
             contactEl.textContent = parts.join(' | ');
-            html = '<!DOCTYPE html>\n' + pdoc.documentElement.outerHTML;
           }
+
+          // Re-apply Skills too: AI/templateOverrides on special-2 can clobber
+          // our deterministic resume-data skills rendering.
+          const skillsContainer = pdoc.getElementById('container-skills');
+          if (skillsContainer) {
+            skillsContainer.innerHTML = '';
+            const nonTechnicalCombined = [
+              ...(data.hobbies || []),
+              ...(data.languages || []),
+            ].filter(Boolean);
+
+            if (data.skills && data.skills.length) {
+              const li = pdoc.createElement('li');
+              li.innerHTML = `<b>Technical:</b> ${data.skills.join(', ')}`;
+              skillsContainer.appendChild(li);
+            }
+            if (nonTechnicalCombined.length) {
+              const li = pdoc.createElement('li');
+              li.innerHTML = `<b>Non-Technical:</b> ${nonTechnicalCombined.join(', ')}`;
+              skillsContainer.appendChild(li);
+            }
+          }
+
+          html = '<!DOCTYPE html>\n' + pdoc.documentElement.outerHTML;
         } catch (_) { /* ignore */ }
       }
 

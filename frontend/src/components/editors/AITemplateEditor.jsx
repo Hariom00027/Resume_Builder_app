@@ -67,6 +67,15 @@ export default function AITemplateEditor({ resume, onChangeResume, aiPreviewMode
       summary: r.summary || '',
       about: r.summary || '',
       skills: Array.isArray(r.skills) ? r.skills.join(', ') : (r.skills || '')
+      ,
+      // Used by SaarthiX Special 2 when templateSchema splits Skills into
+      // Technical + Non-Technical.
+      technicalSkills: Array.isArray(r.skills) ? r.skills.join(', ') : (r.skills || ''),
+      // SaarthiX Special 2 preview combines hobbies + languages as "Non-Technical".
+      nonTechnicalSkills: [
+        ...(Array.isArray(r.hobbies) ? r.hobbies : []),
+        ...(Array.isArray(r.languages) ? r.languages : []),
+      ].filter(Boolean).join(', '),
     };
   };
 
@@ -76,24 +85,539 @@ export default function AITemplateEditor({ resume, onChangeResume, aiPreviewMode
     setLoading(true);
     setError(null);
     try {
-      const resp = await aiAPI.analyzeTemplate({ 
-        templateHtml: template.templateConfig.html,
-        templateId: template.templateId 
-      });
-      
+      const hasTemplateSchema =
+        Array.isArray(template?.templateSchema?.sections) &&
+        template.templateSchema.sections.length > 0;
+
+      // Prefer persisted templateSchema for stability and to avoid hard dependency
+      // on OpenAI availability while opening the editor.
+      const resp = hasTemplateSchema
+        ? { data: { sections: template.templateSchema.sections } }
+        : await aiAPI.analyzeTemplate({
+            templateHtml: template.templateConfig.html,
+            templateId: template.templateId
+          });
+
       if (!resp.data || !resp.data.sections || !Array.isArray(resp.data.sections)) {
-        throw new Error('Invalid response format from AI');
+        throw new Error('Invalid response format from template analysis');
       }
-      
-      setAnalysis(resp.data);
-      
+
+      // For SaarthiX Special 2, we must trust the templateSchema stored in DB
+      // (so Skills are split into Technical + Non-Technical, and My DNA is split
+      // into heading + subtext). The AI "analyze-template" call often collapses
+      // multiple DOM areas into a single editable section, which makes the form UI
+      // incorrect and prevents correct preview updates.
+      const shouldEnforceTemplateSchema =
+        template?.templateId === 'saarthix-special-2' &&
+        template?.templateSchema?.sections &&
+        Array.isArray(template.templateSchema.sections) &&
+        template.templateSchema.sections.length > 0;
+
+      const sectionsToUse = shouldEnforceTemplateSchema ? template.templateSchema.sections : resp.data.sections;
+
+      const nextAnalysis = shouldEnforceTemplateSchema
+        ? { ...resp.data, sections: sectionsToUse }
+        : resp.data;
+
+      setAnalysis(nextAnalysis);
+
+      // When opening a template, pre-fill the form with the template's own
+      // placeholder/default content (not only with current resume data).
+      // This is especially important for SaarthiX templates whose preview
+      // shows rich default content even when resume fields are empty.
+      const special2DefaultsMap = (() => {
+        if (!shouldEnforceTemplateSchema || template.templateId !== 'saarthix-special-2') return {};
+        try {
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(template.templateConfig.html, 'text/html');
+
+          const contactText = doc.querySelector('.contact')?.textContent || '';
+          const extractAfter = (label, src) => {
+            if (!src) return '';
+            const re = new RegExp(`${label}\\s*:?\\s*([^|]+)`, 'i');
+            const m = src.match(re);
+            return (m?.[1] || '').trim();
+          };
+
+          const nameText = doc.querySelector('.name')?.textContent?.trim() || '';
+
+          const summaryParagraphs = Array.from(doc.querySelectorAll('#container-summary p'))
+            .map(p => (p.textContent || '').trim())
+            .filter(Boolean);
+          const summaryText = summaryParagraphs.join('\n');
+
+          const defaults = {};
+
+          // Contact section: selector is ".contact" in schema.
+          defaults['.contact__fullName'] = nameText;
+          defaults['.contact__email'] = extractAfter('Email', contactText);
+          defaults['.contact__phone'] = extractAfter('Phone', contactText);
+          defaults['.contact__linkedin'] = extractAfter('LinkedIn', contactText);
+          // "Palo Alto, CA" has no label in the template; it's the trailing part.
+          // We'll take the part after the last "|" if present.
+          defaults['.contact__location'] = (() => {
+            const parts = contactText.split('|').map(s => s.trim()).filter(Boolean);
+            if (!parts.length) return '';
+            return parts[parts.length - 1].replace(/^Location\s*:?/i, '').trim();
+          })();
+
+          // Summary section: selector "#container-summary"
+          defaults['#container-summary__summary'] = summaryText;
+
+          // My DNA: selector "#container-dna", fields heading/subtext, array li nodes.
+          const dnaLis = Array.from(doc.querySelectorAll('#container-dna li'));
+          dnaLis.forEach((li, idx) => {
+            const heading = li.querySelector('b')?.textContent?.trim() || '';
+            // Example: "<b>Entrepreneurial Leadership</b> – Founded Pied Piper..."
+            const full = (li.textContent || '').trim();
+            let subtext = full;
+            if (heading) {
+              subtext = full.replace(heading, '').trim();
+              subtext = subtext.replace(/^[-–]\s*/g, '').trim();
+            }
+            defaults[`#container-dna__heading__${idx}`] = heading;
+            defaults[`#container-dna__subtext__${idx}`] = subtext;
+          });
+
+          // Experience: selector "#container-experience"
+          const expNodes = Array.from(doc.querySelectorAll('#container-experience .exp'));
+          expNodes.forEach((exp, idx) => {
+            const dateStr = exp.querySelector('.date')?.textContent?.trim() || '';
+            const split = dateStr.split(/[-–]/).map(s => s.trim());
+            const startDate = split[0] || '';
+            const endDate = split.slice(1).join('-').trim() || '';
+
+            const liNodes = Array.from(exp.querySelectorAll('ul li'));
+            const getAfterColon = (text) => {
+              if (!text) return '';
+              const parts = String(text).split(':');
+              if (parts.length < 2) return text.trim();
+              return parts.slice(1).join(':').trim();
+            };
+
+            defaults[`#container-experience__company__${idx}`] = getAfterColon(liNodes[0]?.textContent || '');
+            defaults[`#container-experience__description__${idx}`] = getAfterColon(liNodes[1]?.textContent || '');
+            defaults[`#container-experience__role__${idx}`] = getAfterColon(liNodes[2]?.textContent || '');
+            defaults[`#container-experience__keySkills__${idx}`] = getAfterColon(liNodes[3]?.textContent || '');
+            defaults[`#container-experience__achievements__${idx}`] = getAfterColon(liNodes[4]?.textContent || '');
+            defaults[`#container-experience__startDate__${idx}`] = startDate;
+            defaults[`#container-experience__endDate__${idx}`] = endDate;
+          });
+
+          // Skills split: technical selector is '#container-skills li:first-of-type'
+          const techLi = doc.querySelector('#container-skills li:first-of-type');
+          const nonTechLi = doc.querySelector('#container-skills li:nth-of-type(2)');
+          const afterColon = (text) => {
+            if (!text) return '';
+            const parts = String(text).split(':');
+            if (parts.length < 2) return text.trim();
+            return parts.slice(1).join(':').trim();
+          };
+          defaults['#container-skills li:first-of-type__technicalSkills'] = afterColon(techLi?.textContent || '');
+          defaults['#container-skills li:nth-of-type(2)__nonTechnicalSkills'] = afterColon(nonTechLi?.textContent || '');
+
+          // Certifications: selector '#container-certifications', field 'name'
+          const certLis = Array.from(doc.querySelectorAll('#container-certifications li'));
+          certLis.forEach((li, idx) => {
+            defaults[`#container-certifications__name__${idx}`] = (li.textContent || '').trim();
+          });
+
+          // Education: selector '#container-education', fields map in DB schema.
+          const eduTitleNodes = Array.from(doc.querySelectorAll('#container-education .edu-title'));
+          eduTitleNodes.forEach((eduTitle, idx) => {
+            const degreeRaw = (eduTitle.textContent || '').trim();
+            const degreeParts = degreeRaw.split(':');
+            const degree = degreeParts.length > 1 ? degreeParts.slice(1).join(':').trim() : degreeRaw;
+
+            const ul = eduTitle.nextElementSibling && eduTitle.nextElementSibling.tagName === 'UL'
+              ? eduTitle.nextElementSibling
+              : null;
+            const liNodes = ul ? Array.from(ul.querySelectorAll('li')) : [];
+            const liText = (n) => (liNodes[n]?.textContent || '').trim();
+            const getAfter = (text) => {
+              if (!text) return '';
+              const parts = String(text).split(':');
+              if (parts.length < 2) return text.trim();
+              return parts.slice(1).join(':').trim();
+            };
+
+            const institution = getAfter(liText(0));
+            const yearStr = getAfter(liText(1));
+            const [startDate, endDate] = yearStr.split(/[-–]/).map(s => s.trim());
+            const gpa = getAfter(liText(2));
+            const description = getAfter(liText(3));
+
+            defaults[`#container-education__degree__${idx}`] = degree;
+            defaults[`#container-education__institution__${idx}`] = institution;
+            defaults[`#container-education__startDate__${idx}`] = startDate || '';
+            defaults[`#container-education__endDate__${idx}`] = endDate || '';
+            defaults[`#container-education__gpa__${idx}`] = gpa || '';
+            defaults[`#container-education__description__${idx}`] = description || '';
+          });
+
+          return defaults;
+        } catch (e) {
+          console.warn('[AITemplateEditor] Failed to extract SaarthiX special-2 template defaults', e);
+          return {};
+        }
+      })();
+
+      // SaarthiX Special 1: explicitly prefill My DNA fields from template defaults.
+      // This template's schema/analysis keys can drift, so we set values for both
+      // first-of-type and nth-of-type(1) key variants.
+      const special1DefaultsMap = (() => {
+        if (template?.templateId !== 'saarthix-special-1') return {};
+        try {
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(template.templateConfig.html, 'text/html');
+
+          const dnaSection = Array.from(doc.querySelectorAll('.right .section')).find((sec) => {
+            const h2 = sec.querySelector('h2');
+            const t = String(h2?.textContent || '').trim().toLowerCase();
+            return t === 'my dna' || t === 'profile';
+          });
+          if (!dnaSection) return {};
+
+          const headings = Array.from(dnaSection.querySelectorAll('h3')).map((h) => String(h.textContent || '').trim());
+          const lists = Array.from(dnaSection.querySelectorAll('ul')).map((ul) =>
+            Array.from(ul.querySelectorAll('li'))
+              .map((li) => String(li.textContent || '').trim())
+              .filter(Boolean)
+              .join(', ')
+          );
+
+          const defaults = {};
+          const sections = Array.isArray(nextAnalysis?.sections) ? nextAnalysis.sections : [];
+          const byTitle = (needle) =>
+            sections.find((s) => String(s?.title || '').toLowerCase().includes(needle));
+          const setDNABySemanticFieldMatch = (headingVals, listVals) => {
+            sections
+              .filter((s) => {
+                const t = String(s?.title || '').toLowerCase();
+                return t.includes('dna') || (t.includes('profile') && t.includes('right'));
+              })
+              .forEach((s) => {
+                (s.fields || []).forEach((f) => {
+                  const nm = String(f?.name || '').toLowerCase();
+                  const lb = String(f?.label || '').toLowerCase();
+                  const keyBase = `${s.selector}__${f.name}`;
+
+                  const isHeading = nm.includes('heading') || lb.includes('heading') || lb.includes('label');
+                  const isEntre = nm.includes('entre') || lb.includes('entre');
+                  const isTech = nm.includes('tech') || lb.includes('tech');
+                  const isInnov = nm.includes('innov') || lb.includes('innov');
+
+                  let value = '';
+                  if (isHeading && isEntre) value = headingVals[0] || '';
+                  else if (isHeading && isTech) value = headingVals[1] || '';
+                  else if (isHeading && isInnov) value = headingVals[2] || '';
+                  else if (!isHeading && isEntre) value = listVals[0] || '';
+                  else if (!isHeading && isTech) value = listVals[1] || '';
+                  else if (!isHeading && isInnov) value = listVals[2] || '';
+
+                  if (value) {
+                    defaults[keyBase] = value;
+                    defaults[`${keyBase}__0`] = value;
+                  }
+                });
+              });
+          };
+          const assignBySectionTitle = (needle, value) => {
+            if (!value) return;
+            sections
+              .filter((s) => String(s?.title || '').toLowerCase().includes(needle))
+              .forEach((s) => {
+                (s.fields || []).forEach((f) => {
+                  if (!f?.name) return;
+                  // Write both plain and first-index keys so prefill works whether
+                  // the current analysis marks this section as scalar or array-like.
+                  defaults[`${s.selector}__${f.name}`] = value;
+                  defaults[`${s.selector}__${f.name}__0`] = value;
+                });
+              });
+          };
+
+          // DNA keys use whichever selector the current analysis uses.
+          const dnaSec = byTitle('dna');
+          if (dnaSec?.selector) {
+            const sel = dnaSec.selector;
+            if (headings[0]) defaults[`${sel}__heading1`] = headings[0];
+            if (headings[1]) defaults[`${sel}__heading2`] = headings[1];
+            if (headings[2]) defaults[`${sel}__heading3`] = headings[2];
+            if (lists[0]) defaults[`${sel}__entrepreneurialMindset`] = lists[0];
+            if (lists[1]) defaults[`${sel}__technicalLeadership`] = lists[1];
+            if (lists[2]) defaults[`${sel}__innovation`] = lists[2];
+          }
+          // Also map by semantic field names/labels so prefill works even when
+          // field keys differ from heading1/2/3.
+          setDNABySemanticFieldMatch(headings, lists);
+
+          // Contact defaults
+          const contact = doc.querySelector('.contact');
+          if (contact) {
+            const p = Array.from(contact.querySelectorAll('p'));
+            const textAfterLabel = (line) => {
+              const raw = String(line || '').trim();
+              const parts = raw.split(':');
+              return parts.length > 1 ? parts.slice(1).join(':').trim() : raw;
+            };
+            const phone = textAfterLabel(p[0]?.textContent || '');
+            const city = textAfterLabel(p[1]?.textContent || '');
+            const linkedin = contact.querySelector('a')?.textContent?.trim() || textAfterLabel(p[2]?.textContent || '');
+            const email = textAfterLabel(p[3]?.textContent || '');
+            const contactSec = byTitle('contact');
+            const csel = contactSec?.selector || '.contact';
+            if (phone) defaults[`${csel}__phone`] = phone;
+            if (city) {
+              defaults[`${csel}__city`] = city;
+              defaults[`${csel}__location`] = city;
+            }
+            if (linkedin) defaults[`${csel}__linkedin`] = linkedin;
+            if (email) defaults[`${csel}__email`] = email;
+          }
+
+          // Name Header defaults (left form fields under "Name Header")
+          // Schema keys (from MongoDB templateSchema):
+          //   .header__firstName, .header__lastName, .header__tagline
+          try {
+            const firstName = doc.querySelector('.header .first-name')?.textContent?.trim() || '';
+            const lastName = doc.querySelector('.header .last-name')?.textContent?.trim() || '';
+            const tagline = doc.querySelector('.header .tagline')?.textContent?.trim() || '';
+            if (firstName) defaults['.header__firstName'] = firstName;
+            if (lastName) defaults['.header__lastName'] = lastName;
+            if (tagline) defaults['.header__tagline'] = tagline;
+          } catch (_) { /* ignore */ }
+
+          // Profile Summary defaults (left form field: .left__profileSummary)
+          try {
+            const profileP = doc.querySelector('.left h2:first-of-type + p');
+            const summaryText = profileP?.textContent?.trim() || '';
+            if (summaryText) defaults['.left__profileSummary'] = summaryText;
+            assignBySectionTitle('profile summary', summaryText);
+          } catch (_) { /* ignore */ }
+
+          // Key Recognitions defaults (left form field: .left__recognitions)
+          try {
+            const recogUl = doc.querySelector('.left h2:nth-of-type(2) + ul');
+            const recogLis = recogUl ? Array.from(recogUl.querySelectorAll('li')).map(li => li.textContent.trim()).filter(Boolean) : [];
+            if (recogLis.length) {
+              const recogText = recogLis.join(', ');
+              defaults['.left__recognitions'] = recogText;
+              assignBySectionTitle('key recognitions', recogText);
+            }
+          } catch (_) { /* ignore */ }
+
+          // Key Accomplishments defaults (left form field: .left__accomplishments)
+          // The template typically has multiple <p> lines after the last h2.
+          try {
+            const lastH2 = doc.querySelector('.left h2:last-of-type');
+            const items = [];
+            if (lastH2) {
+              let cur = lastH2.nextElementSibling;
+              while (cur && cur.tagName === 'P') {
+                const t = cur.textContent.trim();
+                if (t) items.push(t);
+                cur = cur.nextElementSibling;
+              }
+            }
+            if (items.length) {
+              const accomplishmentsText = items.join(', ');
+              defaults['.left__accomplishments'] = accomplishmentsText;
+              assignBySectionTitle('accomplishment', accomplishmentsText);
+              assignBySectionTitle('certification', accomplishmentsText);
+            }
+          } catch (_) { /* ignore */ }
+
+          // Skills defaults
+          const skillsSection = Array.from(doc.querySelectorAll('.right .section')).find((sec) =>
+            /skills/i.test(String(sec.querySelector('h2')?.textContent || ''))
+          );
+          if (skillsSection) {
+            const lis = Array.from(skillsSection.querySelectorAll('ul li')).map((li) => String(li.textContent || '').trim());
+            const tech = lis.find((t) => /^technical:/i.test(t));
+            const nonTech = lis.find((t) => /^non-technical:/i.test(t));
+            const cleanAfter = (t) => (t ? t.replace(/^[^:]+:\s*/i, '').trim() : '');
+            const techVal = cleanAfter(tech);
+            const nonTechVal = cleanAfter(nonTech);
+            const skillsSec = byTitle('skills');
+            const ssel = skillsSec?.selector;
+            if (ssel) {
+              if (techVal) defaults[`${ssel}__technicalSkills`] = techVal;
+              if (nonTechVal) defaults[`${ssel}__nonTechnicalSkills`] = nonTechVal;
+            }
+          }
+
+          // Experience defaults
+          const expSection = Array.from(doc.querySelectorAll('.right .section')).find((sec) =>
+            /experience/i.test(String(sec.querySelector('h2')?.textContent || ''))
+          );
+          if (expSection) {
+            const h3 = expSection.querySelector('h3')?.textContent?.trim() || '';
+            const roleP = expSection.querySelector('p:not(.date)')?.textContent?.trim() || '';
+            const dateP = expSection.querySelector('.date')?.textContent?.trim() || '';
+            const responsibilities = Array.from(expSection.querySelectorAll('ul li'))
+              .map((li) => String(li.textContent || '').trim())
+              .filter(Boolean)
+              .join('\n');
+
+            const roleFromH3 = h3.split('–')[0]?.trim() || '';
+            const companyFromH3 = h3.split('–').slice(1).join('–').trim() || '';
+            const roleFromP = roleP.replace(/^role\s*[–-]\s*/i, '').trim();
+            const role = roleFromP || roleFromH3;
+            const company = companyFromH3;
+            const date = dateP;
+
+            const expSec = byTitle('experience');
+            const esel = expSec?.selector;
+            if (esel) {
+              if (role) defaults[`${esel}__role__0`] = role;
+              if (company) defaults[`${esel}__company__0`] = company;
+              if (date) defaults[`${esel}__date__0`] = date;
+              if (responsibilities) defaults[`${esel}__responsibilities__0`] = responsibilities;
+            }
+          }
+
+          // Education defaults
+          const eduSection = Array.from(doc.querySelectorAll('.right .section')).find((sec) =>
+            /education/i.test(String(sec.querySelector('h2')?.textContent || ''))
+          );
+          if (eduSection) {
+            const lines = Array.from(eduSection.querySelectorAll('p'))
+              .map((pEl) => String(pEl.textContent || '').trim());
+            const getLine = (label) => {
+              const ln = lines.find((l) => new RegExp(`^${label}\\s*:`, 'i').test(l));
+              return ln ? ln.split(':').slice(1).join(':').trim() : '';
+            };
+            const degree = getLine('Graduation');
+            const institution = getLine('College');
+            const dates = getLine('year');
+            const gpa = getLine('GPA');
+            const description = getLine('Electives / Subjects');
+            const eduSec = byTitle('education');
+            const usel = eduSec?.selector;
+            if (usel) {
+              if (degree) defaults[`${usel}__degree__0`] = degree;
+              if (institution) defaults[`${usel}__institution__0`] = institution;
+              if (dates) defaults[`${usel}__dates__0`] = dates;
+              if (gpa) defaults[`${usel}__gpa__0`] = gpa;
+              if (description) defaults[`${usel}__description__0`] = description;
+            }
+          }
+
+          return defaults;
+        } catch {
+          return {};
+        }
+      })();
+
+      // Generic template default extraction for ALL templates.
+      // Best-effort: uses template.templateSchema selectors to pull visible
+      // default values from the template HTML and pre-fill the left-panel form.
+      const genericDefaultsMap = (() => {
+        try {
+          // SaarthiX Special 1 has precise, section-aware defaults above.
+          // Skip generic extraction to avoid broad selector collisions (e.g. h3).
+          if (template?.templateId === 'saarthix-special-1') return {};
+          const templateHtml = template?.templateConfig?.html;
+          if (!templateHtml) return {};
+
+          const schemaSections = Array.isArray(template?.templateSchema?.sections) ? template.templateSchema.sections : [];
+          const analysisSections = Array.isArray(resp?.data?.sections) ? resp.data.sections : [];
+          const allSections = [...schemaSections, ...analysisSections];
+          if (!allSections.length) return {};
+
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(templateHtml, 'text/html');
+
+          const defaults = {};
+          const safeTrim = (s) => String(s || '').trim();
+
+          const getFieldValue = (el, field) => {
+            if (!el) return '';
+            const t = field?.type;
+
+            if (t === 'image') {
+              return safeTrim(el.getAttribute?.('src') || '');
+            }
+
+            if (t === 'list') {
+              const lis = el.querySelectorAll?.('li') ? Array.from(el.querySelectorAll('li')) : [];
+              if (lis.length) return lis.map(li => safeTrim(li.textContent)).filter(Boolean).join(', ');
+              return safeTrim(el.textContent || '');
+            }
+
+            if (t === 'url' || t === 'email' || t === 'tel') {
+              const href = safeTrim(el.getAttribute?.('href') || '');
+              if (href) {
+                return href
+                  .replace(/^mailto:/i, '')
+                  .replace(/^tel:/i, '')
+                  .replace(/^https?:\/\//i, '');
+              }
+              return safeTrim(el.textContent || '');
+            }
+
+            // textarea/text/date etc.
+            return safeTrim(el.textContent || '');
+          };
+
+          for (const section of allSections) {
+            if (!section?.selector) continue;
+            const sectionSelector = section.selector;
+            const isArray = !!section.isArray;
+
+            for (const field of (section.fields || [])) {
+              if (!field?.selector || !field?.name) continue;
+
+              let matches = Array.from(doc.querySelectorAll(field.selector));
+              if (matches.length === 0) {
+                const single = doc.querySelector(field.selector);
+                if (single) matches = [single];
+              }
+
+              // If direct selector lookup fails, try resolving relative to section root.
+              if (!matches.length && sectionSelector) {
+                const sectionRoot = doc.querySelector(sectionSelector);
+                if (sectionRoot && field.selector) {
+                  matches = Array.from(sectionRoot.querySelectorAll(field.selector));
+                  if (matches.length === 0) {
+                    const singleRel = sectionRoot.querySelector(field.selector);
+                    if (singleRel) matches = [singleRel];
+                  }
+                }
+              }
+
+              if (!matches.length) continue;
+
+              if (isArray) {
+                matches.slice(0, 10).forEach((m, idx) => {
+                  const v = getFieldValue(m, field);
+                  if (!v) return;
+                  defaults[`${sectionSelector}__${field.name}__${idx}`] = v;
+                });
+              } else {
+                const v = getFieldValue(matches[0], field);
+                if (!v) continue;
+                defaults[`${sectionSelector}__${field.name}`] = v;
+              }
+            }
+          }
+
+          return defaults;
+        } catch {
+          return {};
+        }
+      })();
+
+      const templateDefaultsMap = { ...genericDefaultsMap, ...special2DefaultsMap, ...special1DefaultsMap };
+
       // Bug 2.2 fix: pre-fill from resume data when available,
       // and MERGE with existing formData instead of overwriting it.
       const resumeValueMap = buildResumeValueMap(resume);
 
       setFormData(prev => {
         const merged = { ...prev };
-        resp.data.sections?.forEach(section => {
+        nextAnalysis.sections?.forEach(section => {
           // Check if this is an array section that should be pre-filled from resume arrays
           const st = section.type;
           const title = (section.title || '').toLowerCase();
@@ -143,11 +667,19 @@ export default function AITemplateEditor({ resume, onChangeResume, aiPreviewMode
             }
           });
         });
+
+        // Final merge: if any form field is still empty, fill it from the
+        // template's default placeholder content (when available).
+        for (const [k, v] of Object.entries(templateDefaultsMap)) {
+          if (merged[k] == null || String(merged[k]).trim() === '') {
+            merged[k] = v ?? '';
+          }
+        }
         
         // Cache the analysis and formData for this template
         if (templateIdRef.current) {
           scanCache.set(templateIdRef.current, {
-            analysis: resp.data,
+            analysis: nextAnalysis,
             formData: merged
           });
         }
@@ -156,7 +688,7 @@ export default function AITemplateEditor({ resume, onChangeResume, aiPreviewMode
       });
       
       // Open first section by default
-      if (resp.data.sections?.length > 0) {
+      if (nextAnalysis.sections?.length > 0) {
         setOpenSection(null);
       }
       setHasScanned(true);
@@ -182,6 +714,9 @@ export default function AITemplateEditor({ resume, onChangeResume, aiPreviewMode
         errorMessage += 'Please check your OpenAI API key and try again.';
       }
       setError(errorMessage);
+      // Stop auto-retry loop on repeated failures (e.g., /analyze-template 500).
+      // User can still trigger manual re-scan via existing buttons.
+      setHasScanned(true);
     } finally {
       setLoading(false);
     }
@@ -279,6 +814,17 @@ export default function AITemplateEditor({ resume, onChangeResume, aiPreviewMode
         const shouldRestoreCachedFormData =
           !!resume?.aiFormData && typeof resume.aiFormData === 'object' && Object.keys(resume.aiFormData).length > 0;
 
+        // SaarthiX Special 2: enforce templateSchema-driven sections.
+        // Even if we have cached analysis from before the schema migration,
+        // it can keep showing the old single "Skills" section.
+        if (resume.templateId === 'saarthix-special-2') {
+          setAnalysis(null);
+          setHasScanned(false);
+          setOpenSection(null);
+          setFormData({});
+          return;
+        }
+
         if (templateChanged) {
           // Restore analysis from cache if available (fast),
           // but only restore formData when this resume actually has aiFormData.
@@ -304,7 +850,7 @@ export default function AITemplateEditor({ resume, onChangeResume, aiPreviewMode
       }
     };
     loadTemplate();
-  }, [resume?.templateId, resume?.aiFormData]);
+  }, [resume?.templateId]);
 
   // Auto-scan on first load when template is ready (only if not already scanned)
   useEffect(() => {
@@ -651,6 +1197,53 @@ export default function AITemplateEditor({ resume, onChangeResume, aiPreviewMode
         ...r,
         personalInfo: { ...(r.personalInfo || {}), [fieldName]: value || '' },
       }));
+      return true;
+    }
+
+    // ── SaarthiX Special 2 Skills (legacy schema compatibility) ───────────
+    // Older schema modeled the whole #container-skills UL as an array of <li>.
+    // In that case, the editor fieldName is `name` and:
+    // - entryIndex 0 => Technical list
+    // - entryIndex 1 => Non-Technical list
+    if (
+      resume?.templateId === 'saarthix-special-2' &&
+      fieldName === 'name' &&
+      typeof sectionSelector === 'string' &&
+      sectionSelector.includes('container-skills')
+    ) {
+      const idx = entryIndex ?? 0;
+      const toList = (v) =>
+        String(v || '')
+          .split(/[\n,]/)
+          .map((s) => s.trim())
+          .filter(Boolean);
+
+      onChangeResume((r) => {
+        const nextOverrides = { ...(r.templateOverrides || {}) };
+        // Remove any stale AI section HTML for skills.
+        Object.keys(nextOverrides).forEach((k) => {
+          if (k.includes('container-skills')) delete nextOverrides[k];
+        });
+
+        if (idx === 0) {
+          return {
+            ...r,
+            skills: toList(value),
+            templateOverrides: nextOverrides,
+          };
+        }
+
+        if (idx === 1) {
+          return {
+            ...r,
+            hobbies: toList(value),
+            templateOverrides: nextOverrides,
+          };
+        }
+
+        return { ...r, templateOverrides: nextOverrides };
+      });
+
       return true;
     }
 
